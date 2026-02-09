@@ -2,7 +2,7 @@
 
 ## Current State
 **Phase:** Development
-**Status:** Session 03 complete, Session 04 up next
+**Status:** Session 04 complete
 
 ## Session Roadmap
 
@@ -69,9 +69,22 @@
 ---
 
 ### Session 04 — Drag & Drop File Input Workflow
-**Status:** Planned | **Date:** TBD
+**Status:** Done | **Date:** 2026-02-09
 
-**Deliverable:** Functional drag & drop — user drops a file, sees extracted metadata, selects project/folder, and can approve or cancel.
+**Deliverable:** Functional drag & drop (and click-to-browse) — user drops a file, sees extracted metadata, selects project/folder, and can approve or cancel.
+
+**What was built:**
+- `src/main.py` rewritten — DropZone with drag & drop events + click-to-browse file picker, PostDropPanel with file info/metadata preview/project-folder dropdowns/cancel-approve buttons, QStackedWidget panel switching, in-memory database with sample data, sidebar loaded from DB
+- `src/extractor.py` — added dedicated CSV handler (first 100 rows, column names, fast row counting), optimized Excel to stream rows instead of loading all into memory
+- `tests/test_extractor.py` — added 7 CSV extraction tests (46 total tests passing)
+- `tests/samples/sample.csv` — sample CSV test file
+
+**Key decisions:**
+- pyqtSignal decoupling: DropZone emits `file_dropped(str)` without knowing about extractor or database
+- CSV gets its own handler (not treated as code file) — reads only 100 rows for speed on large files
+- Buttons pinned outside QScrollArea so they're always visible regardless of metadata length
+- Click-to-browse via QFileDialog as alternative input method (same signal path as drag & drop)
+- Column names capped at 10 in metadata display to prevent UI overflow
 
 ---
 
@@ -250,4 +263,4 @@ erDiagram
 ```
 
 ## Up Next
-**Session 04** — Functional drag & drop with post-drop UI (project/folder dropdowns, metadata preview).
+**Session 05** — Tagging, categorization & folder management (tag/category/comment input, create new project/folder, file move on approve).

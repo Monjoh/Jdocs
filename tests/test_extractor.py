@@ -124,6 +124,51 @@ class TestImageExtraction:
         assert result["error"] is None
 
 
+class TestCsvExtraction:
+    """CSV extraction: column names, row counts, and first 100 rows of text content."""
+
+    def test_text_contains_cell_values(self):
+        """Verify extracted text includes values from CSV rows (header + data)."""
+        result = extract(SAMPLES / "sample.csv")
+        assert "Alice" in result["text"]
+        assert "Engineering" in result["text"]
+        assert "95000" in result["text"]
+
+    def test_column_names(self):
+        """Verify metadata reports the correct column headers from the first row."""
+        result = extract(SAMPLES / "sample.csv")
+        assert result["metadata"]["columns"] == ["Name", "Department", "Salary", "City"]
+
+    def test_column_count(self):
+        """Verify column_count matches the number of headers (4 columns in sample)."""
+        result = extract(SAMPLES / "sample.csv")
+        assert result["metadata"]["column_count"] == 4
+
+    def test_total_rows(self):
+        """Verify total_rows reflects the full file (header + 5 data rows + trailing newline = 6 newlines)."""
+        result = extract(SAMPLES / "sample.csv")
+        assert result["metadata"]["total_rows"] >= 5
+
+    def test_preview_rows_capped(self):
+        """Verify preview_rows doesn't exceed the max (100) and matches actual row count for small files."""
+        result = extract(SAMPLES / "sample.csv")
+        # Small file: preview_rows should equal the actual number of rows read
+        assert result["metadata"]["preview_rows"] <= 100
+        assert result["metadata"]["preview_rows"] >= 5
+
+    def test_file_type_is_csv(self):
+        """Verify the file_type is correctly identified as .csv (not treated as a code file)."""
+        result = extract(SAMPLES / "sample.csv")
+        assert result["file_type"] == ".csv"
+        # Should NOT have code-file metadata keys (line_count, char_count)
+        assert "line_count" not in result["metadata"]
+
+    def test_no_error(self):
+        """A valid CSV should produce no extraction error."""
+        result = extract(SAMPLES / "sample.csv")
+        assert result["error"] is None
+
+
 class TestCodeExtraction:
     """Code file extraction: full raw text + line/char counts."""
 

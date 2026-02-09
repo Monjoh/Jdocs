@@ -1,95 +1,107 @@
 # Session 04 — Drag & Drop File Input Workflow
 
-**Date:** TBD
+**Date:** 2026-02-09
 **Goal:** Make the drop zone functional — when a user drops a file, extract its metadata and display a post-drop panel where they can select a project/folder, preview metadata, and approve or cancel.
 **Deliverable:** Working drag & drop flow: file drop > extraction > post-drop UI panel with project/folder selection and metadata preview.
 
 ## Context & Dependencies
 
-This session connects the UI (`src/main.py`) with the extraction engine (`src/extractor.py`) and the database layer (`src/database.py`). After this session, the user will be able to drag a file into the app, see its extracted metadata, and choose where to organize it. The actual file move and database save will be wired up in Session 05.
+This session connects the UI (`src/main.py`) with the extraction engine (`src/extractor.py`) and the database layer (`src/database.py`). After this session, the user can drag a file into the app (or click to browse), see its extracted metadata, and choose where to organize it. The actual file move and database save will be wired up in Session 05.
 
 **Modules involved:**
-- `src/main.py` — modify DropZone to accept drops, add PostDropPanel widget
-- `src/extractor.py` — called when a file is dropped to get text/metadata
-- `src/database.py` — queried to populate project/folder dropdown options
+- `src/main.py` — modified DropZone to accept drops + clicks, added PostDropPanel widget, wired up MainWindow
+- `src/extractor.py` — called on drop to get text/metadata; added dedicated CSV handler, optimized Excel loading
+- `src/database.py` — queried to populate project/folder dropdown options (no changes to this file)
 
 ## TODOs
 
 ### 1. Enable drag & drop on the DropZone widget
-- [ ] Override `dragEnterEvent` to accept file drops (check MIME type for `application/x-qabstractitemmodeldatalist` or `text/uri-list`)
-- [ ] Override `dragMoveEvent` to allow the drop
-- [ ] Override `dropEvent` to capture the file path(s) from the drop event
-- [ ] Add visual feedback: change DropZone border/background color when a file is being dragged over it (hover state)
-- [ ] Restore normal DropZone styling when drag leaves or drop completes
-- [ ] For now, handle single file drops only (if multiple files are dropped, take the first one and ignore the rest)
+- [x] Override `dragEnterEvent` to accept file drops (checks `event.mimeData().hasUrls()`)
+- [x] Override `dragMoveEvent` to allow the drop to continue
+- [x] Override `dropEvent` to capture the file path from the drop event
+- [x] Add visual feedback: border turns blue (#4a90d9) and background changes to light blue (#e3f0ff) when hovering
+- [x] Restore normal dashed gray styling when drag leaves or drop completes
+- [x] Handle single file drops only (takes first URL, ignores rest)
+- [x] Add click-to-browse: `mousePressEvent` opens `QFileDialog` as an alternative to drag & drop
 
 ### 2. Call the extractor on drop
-- [ ] When a file is dropped, call `extract(file_path)` from `src/extractor.py`
-- [ ] Handle the case where `extract()` returns an error (e.g. display the error in the UI instead of the metadata panel)
-- [ ] Store the extraction result so the PostDropPanel can display it
+- [x] `_on_file_dropped` calls `extract(file_path)` when a file is dropped or selected via file picker
+- [x] If `extract()` returns an error, the error is shown in the status label (red text) and the app stays on the DropZone
+- [x] Extraction result is stored in `PostDropPanel.extraction_result` for later use by Approve
 
 ### 3. Build the PostDropPanel widget
-- [ ] Create a new `PostDropPanel` QFrame widget that replaces the DropZone area after a file is dropped
-- [ ] The panel should display:
-  - **File name** — the original filename at the top as a header
-  - **File type** — the extension (e.g. ".docx", ".xlsx")
-  - **File size** — human-readable format (e.g. "24.5 KB", "1.2 MB")
-  - **Project dropdown** — QComboBox populated from `database.list_projects()`
-  - **Folder dropdown** — QComboBox populated from `database.list_folders(project_id)`, updates when project selection changes
-  - **Metadata preview section** — displays type-specific metadata from the extraction result:
-    - For .docx: author, title, paragraph count, text preview (first ~200 chars)
-    - For .xlsx: sheet count, sheet names with row counts
-    - For .pptx: author, title, slide count, text preview
-    - For images: dimensions (WxH), format, EXIF highlights if any
-    - For code files: line count, char count, text preview
-    - For unsupported types: show the "unsupported" note
-  - **Cancel button** — dismisses the panel and returns to the DropZone view
-  - **Approve button** — placeholder for now (will wire up file move + DB save in Session 05)
-- [ ] The panel should be scrollable if content overflows
+- [x] PostDropPanel QFrame replaces DropZone area after a file is dropped
+- [x] Displays: file name (bold header), file type + human-readable size
+- [x] Project dropdown (QComboBox) populated from `database.list_projects()`
+- [x] Folder dropdown (QComboBox) populated from `database.list_folders(project_id)`, updates on project change
+- [x] Metadata preview section with type-specific formatting:
+  - .docx: author, title, paragraph count
+  - .xlsx: sheet count, per-sheet names and row counts
+  - .pptx: author, title, slide count
+  - .csv: total rows, column count, column names (capped at 10 with "+N more")
+  - Images: dimensions (WxH), format, color mode, EXIF highlights (up to 5 entries)
+  - Code files: line count, character count
+  - Unsupported types: "unsupported" note
+- [x] Text preview: first 200 chars of extracted text, hidden for files with no text
+- [x] Cancel button returns to DropZone, Approve button is a placeholder (prints to console)
+- [x] Only the content area scrolls; buttons are pinned at bottom outside the scroll area
 
 ### 4. Wire up panel transitions
-- [ ] When a file is dropped: hide the DropZone, show the PostDropPanel with extraction data
-- [ ] When Cancel is clicked: hide the PostDropPanel, show the DropZone again
-- [ ] When Approve is clicked: for now, just print a message to console and return to DropZone (Session 05 will implement the actual save logic)
-- [ ] Update the `file_info` label below the main panel to reflect the current state ("Drop a file to get started" vs "Reviewing: filename.xlsx")
+- [x] QStackedWidget switches between DropZone (index 0) and PostDropPanel (index 1)
+- [x] Drop/browse → show PostDropPanel with data; Cancel → show DropZone; Approve → placeholder + show DropZone
+- [x] Status label updates: "Drop a file to get started" / "Reviewing: filename.xlsx" / "Error: ..."
 
 ### 5. Project/folder dropdown population
-- [ ] Initialize the database at app startup (in-memory or temp file for now, since root folder config is Session 07)
-- [ ] Populate the project dropdown from `database.list_projects()`
-- [ ] When a project is selected, populate the folder dropdown with `database.list_folders(project_id)`
-- [ ] Handle the empty state: if no projects exist yet, show a placeholder message or disabled dropdown
-- [ ] Add a "(No project selected)" default option
+- [x] In-memory database initialized at app startup with sample projects/folders
+- [x] Sidebar loads from database (replaced hardcoded sample data)
+- [x] Project dropdown populated from DB; folder dropdown updates on project change
+- [x] "(No project selected)" and "(No folder selected)" as default options
 
-### 6. Testing
-- [ ] Manually test drag & drop with each supported file type (.docx, .xlsx, .pptx, .png, .jpg, .py)
-- [ ] Verify metadata preview displays correctly for each type
-- [ ] Verify unsupported file types show the appropriate note
-- [ ] Verify Cancel returns to the DropZone cleanly
-- [ ] Verify the app doesn't crash on edge cases: dropping a folder, dropping a very large file, dropping while panel is already open
-- [ ] Run the full existing test suite (39 tests) to ensure nothing is broken
+### 6. Feedback improvements (mid-session)
+- [x] Add dedicated CSV extractor — reads only first 100 rows, counts total rows via fast newline counting
+- [x] Optimize Excel extractor — stream rows instead of loading all into memory, cap text preview at 100 rows
+- [x] Pin Cancel/Approve buttons outside scroll area so they're always visible
+- [x] Add file picker dialog on DropZone click as an alternative to drag & drop
 
-## Technical Notes
-
-**Drag & drop in PyQt5:**
-- DropZone already has `setAcceptDrops(True)` — we need to implement the event handlers
-- File paths come from `event.mimeData().urls()` — each URL needs `.toLocalFile()` to get the path
-- `dragEnterEvent` must call `event.acceptProposedAction()` to allow the drop
-
-**Panel layout approach:**
-- Use a QStackedWidget or simple show/hide to switch between DropZone and PostDropPanel in the main panel area
-- This avoids destroying and recreating widgets on each drop
-
-**Database initialization:**
-- For this session, we'll use a temporary SQLite database (`:memory:` or temp file) so the app can run without root folder setup
-- Session 07 will add proper first-launch config and persistent DB location
-
-## Files
-- `src/main.py` — modify extensively (DropZone events, new PostDropPanel widget, panel transitions)
-- `tests/test_database.py` — no changes expected
-- `tests/test_extractor.py` — no changes expected
+### 7. Testing
+- [x] App launches successfully
+- [x] Full test suite: 46 tests passing (18 database + 28 extractor)
+- [x] Added 7 new CSV extraction tests
 
 ## Decisions
-_(To be logged during the session)_
+
+- **QStackedWidget for panel switching:** Chosen over show/hide because it properly manages widget lifecycle and avoids layout recalculation issues. Index 0 is DropZone, index 1 is PostDropPanel — switching is a single `setCurrentIndex()` call.
+
+- **pyqtSignal for decoupling:** DropZone emits `file_dropped(str)` without knowing about the panel or database. MainWindow connects signals. This keeps widgets independent and testable — DropZone doesn't need to import extractor or database.
+
+- **In-memory database for now:** Using `:memory:` SQLite so the app runs without root folder setup. Session 07 will add persistent path. Sample data seeds the same projects/folders shown in the sidebar.
+
+- **Click-to-browse added to DropZone:** Drag & drop can be awkward depending on window placement or when using a trackpad. `mousePressEvent` opens a native `QFileDialog` as a second input method. Both paths emit the same `file_dropped` signal so the downstream flow is identical.
+
+- **CSV as its own extractor (not a code file):** CSV files can be very large and reading them entirely as raw text (like code files) is slow and not useful. A dedicated `_extract_csv()` handler reads only the first 100 rows via `csv.reader`, extracts column names from the header, and counts total rows via fast `str.count("\n")`. This gives useful structural metadata (columns, row count) instead of raw text dump.
+
+- **Excel streaming optimization:** Previously `list(ws.iter_rows())` loaded ALL rows into a Python list before slicing. Changed to iterate with `enumerate()` and only collect text from the first 100 rows while still counting total rows. This avoids loading huge spreadsheets entirely into memory.
+
+- **Buttons pinned outside scroll area:** Originally Cancel/Approve were inside the QScrollArea, meaning users had to scroll past long metadata to reach them. Moved to a separate QFrame below the scroll area with `border-top` separator. The scroll area gets `stretch=1` so it fills available space while the button bar stays fixed height.
+
+- **CSV column names capped at 10 in display:** Files with many columns would overflow the metadata section. Column names beyond 10 are summarized as "+N more" to keep the UI compact while still showing the most important columns.
+
+## Test Coverage Details
+
+| Test Class | Tests | What's Verified |
+|-----------|-------|-----------------|
+| TestDocxExtraction | 4 | Paragraph text, author/title/paragraph_count, file info fields, no error |
+| TestXlsxExtraction | 4 | Cell values in text, sheet_count=2, per-sheet name and row_count, no error |
+| TestPptxExtraction | 4 | Slide title/body text, slide_count=2, author/title, no error |
+| TestImageExtraction | 4 | PNG/JPG dimensions 200x150, correct format strings, empty text for images, no error |
+| TestCsvExtraction | 7 | Cell values in text, column names match header, column_count=4, total_rows>=5, preview_rows<=100, file_type=".csv" (not code), no error |
+| TestCodeExtraction | 3 | Full source content, line_count/char_count > 0, no error |
+| TestEdgeCases | 2 | Non-existent file returns error, unsupported .xyz returns metadata note |
 
 ## Notes
-_(To be logged during the session)_
+
+- **File picker vs drag & drop:** Both input methods emit the same `file_dropped(str)` signal, so all downstream logic (extraction, panel display, project/folder selection) is shared. No code duplication.
+
+- **Approve button is still a placeholder:** It prints `[Approve] File: ... -> Project: ..., Folder: ...` to console and returns to DropZone. Session 05 will implement the actual file move, database save, and sidebar refresh.
+
+- **Sidebar now loads from database:** Replaced the hardcoded `_add_sample_projects()` with `load_from_database(db)` that queries `list_projects()` and `list_folders()`. This means the sidebar and dropdowns always show the same data.

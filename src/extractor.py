@@ -5,9 +5,12 @@ Extracts text content and metadata from supported file types:
 - Excel (.xlsx)
 - PowerPoint (.pptx)
 - Images (.png, .jpg, .jpeg)
+- CSV (.csv) — first 100 rows, column names, row count
 - Code files (.py, .js, .java, .ts, .c, .cpp, .html, .css, .json, .xml, .md, .txt)
 """
 
+import csv
+import io
 from pathlib import Path
 
 from docx import Document as DocxDocument
@@ -21,7 +24,7 @@ from pptx import Presentation
 CODE_EXTENSIONS = {
     ".py", ".js", ".ts", ".java", ".c", ".cpp", ".h", ".hpp",
     ".html", ".css", ".json", ".xml", ".yaml", ".yml",
-    ".md", ".txt", ".csv", ".sh", ".bat", ".ps1",
+    ".md", ".txt", ".sh", ".bat", ".ps1",
     ".rb", ".go", ".rs", ".swift", ".kt",
 }
 
@@ -59,6 +62,8 @@ def extract(file_path: str | Path) -> dict:
             _extract_xlsx(path, base)
         elif ext == ".pptx":
             _extract_pptx(path, base)
+        elif ext == ".csv":
+            _extract_csv(path, base)
         elif ext in {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff"}:
             _extract_image(path, base)
         elif ext in CODE_EXTENSIONS:
@@ -99,18 +104,19 @@ def _extract_xlsx(path: Path, result: dict):
     wb = load_workbook(str(path), read_only=True, data_only=True)
     sheet_info = []
     all_text = []
+    max_preview_rows = 100
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
-        rows = list(ws.iter_rows(values_only=True))
-        row_count = len(rows)
+        row_count = 0
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            row_count += 1
+            # Only collect text from the first N rows for preview
+            if i < max_preview_rows:
+                for cell in row:
+                    if cell is not None:
+                        all_text.append(str(cell))
         sheet_info.append({"name": sheet_name, "row_count": row_count})
-
-        # Collect text from first 50 rows as a sample
-        for row in rows[:50]:
-            for cell in row:
-                if cell is not None:
-                    all_text.append(str(cell))
 
     wb.close()
     result["text"] = "\n".join(all_text)
@@ -170,6 +176,35 @@ def _extract_image(path: Path, result: dict):
         result["metadata"]["exif"] = exif_data
 
     img.close()
+
+
+def _extract_csv(path: Path, result: dict):
+    """Extract column names and first 100 rows from a CSV file."""
+    max_preview_rows = 100
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    reader = csv.reader(io.StringIO(raw))
+
+    rows = []
+    for i, row in enumerate(reader):
+        if i > max_preview_rows:
+            break
+        rows.append(row)
+
+    # Total row count by counting newlines (fast, avoids reading all rows via csv)
+    total_rows = raw.count("\n")
+
+    columns = rows[0] if rows else []
+    sample_text = []
+    for row in rows[:max_preview_rows]:
+        sample_text.append(", ".join(row))
+
+    result["text"] = "\n".join(sample_text)
+    result["metadata"] = {
+        "columns": columns,
+        "column_count": len(columns),
+        "total_rows": total_rows,
+        "preview_rows": min(max_preview_rows, len(rows)),
+    }
 
 
 def _extract_code(path: Path, result: dict):
