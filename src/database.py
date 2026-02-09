@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Union
+from typing import Dict, List, Optional, Union
 
 
 class Database:
@@ -104,7 +104,7 @@ class Database:
         ).fetchone()
         return dict(row) if row else None
 
-    def list_projects(self) -> list[dict]:
+    def list_projects(self) -> List[Dict]:
         rows = self.conn.execute(
             "SELECT * FROM projects ORDER BY name"
         ).fetchall()
@@ -130,7 +130,7 @@ class Database:
         ).fetchone()
         return dict(row) if row else None
 
-    def list_folders(self, project_id: int, parent_folder_id: Optional[int] = None) -> list[dict]:
+    def list_folders(self, project_id: int, parent_folder_id: Optional[int] = None) -> List[Dict]:
         if parent_folder_id is None:
             rows = self.conn.execute(
                 "SELECT * FROM folders WHERE project_id = ? AND parent_folder_id IS NULL ORDER BY name",
@@ -166,7 +166,7 @@ class Database:
         ).fetchone()
         return dict(row) if row else None
 
-    def list_files(self, folder_id: int) -> list[dict]:
+    def list_files(self, folder_id: int) -> List[Dict]:
         rows = self.conn.execute(
             "SELECT * FROM files WHERE folder_id = ? ORDER BY original_name",
             (folder_id,),
@@ -216,7 +216,7 @@ class Database:
         )
         self.conn.commit()
 
-    def get_file_tags(self, file_id: int) -> list[str]:
+    def get_file_tags(self, file_id: int) -> List[str]:
         rows = self.conn.execute(
             """SELECT t.name FROM tags t
                JOIN file_tags ft ON t.id = ft.tag_id
@@ -253,7 +253,7 @@ class Database:
         )
         self.conn.commit()
 
-    def get_file_categories(self, file_id: int) -> list[str]:
+    def get_file_categories(self, file_id: int) -> List[str]:
         rows = self.conn.execute(
             """SELECT c.name FROM categories c
                JOIN file_categories fc ON c.id = fc.category_id
@@ -272,7 +272,7 @@ class Database:
         self.conn.commit()
         return cur.lastrowid
 
-    def get_file_comments(self, file_id: int) -> list[dict]:
+    def get_file_comments(self, file_id: int) -> List[Dict]:
         rows = self.conn.execute(
             "SELECT * FROM file_comments WHERE file_id = ? ORDER BY created_at",
             (file_id,),
