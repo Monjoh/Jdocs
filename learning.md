@@ -9,10 +9,12 @@ Accumulated patterns and preferences from working on this project. Updated as we
 - Keep things simple and iterative
 
 ## Technical Preferences
-_(To be filled as we make decisions and discover patterns)_
+- Mac has Python 3.7, Windows has Python 3.13 — code must be compatible with 3.7+
+- Use `Union[X, Y]` from typing instead of `X | Y` syntax (requires 3.10+)
+- Use `list[dict]` style hints cautiously — prefer `List[Dict]` from typing if targeting 3.7
 
 ## What Works Well
 _(To be filled based on session feedback)_
 
 ## What to Avoid
-_(To be filled based on session feedback)_
+- `str | Path` union syntax — breaks on Python < 3.10 (Mac has 3.7)
