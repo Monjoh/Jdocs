@@ -10,7 +10,7 @@
 
 ## Tech Stack
 - **Language:** Python
-- **UI:** PyQt5 or CustomTkinter (TBD in Session 01)
+- **UI:** PyQt5
 - **Database:** SQLite (metadata, tags, search index)
 - **Libraries:** python-docx, openpyxl, python-pptx, Pillow
 - **Distribution:** Standalone executable via PyInstaller (.exe on Windows, .app on macOS)

@@ -1,8 +1,8 @@
 # jDocs - Project Plan
 
 ## Current State
-**Phase:** Project Setup
-**Status:** Setting up project structure and planning sessions
+**Phase:** Development
+**Status:** Session 01 complete — skeleton app ready for testing
 
 ## What's Done
 - [x] Project concept defined (jDocs)
@@ -16,7 +16,7 @@
 
 | Session | Title | Status | Date |
 |---------|-------|--------|------|
-| 01 | Project Skeleton & UI Framework Decision | Planned | TBD |
+| 01 | Project Skeleton & UI Framework Decision | Done | 2026-02-09 |
 | 02 | Database Schema & Core Data Layer | Planned | TBD |
 | 03 | File Metadata Extraction Engine | Planned | TBD |
 | 04 | Drag & Drop File Input Workflow | Planned | TBD |
@@ -29,4 +29,4 @@
 > Sessions may be added, split, or reordered as the project evolves.
 
 ## Up Next
-**Session 01** — Decide on UI framework (PyQt5 vs CustomTkinter), create the app entry point, basic window with placeholder layout, and project dependencies file.
+**Session 02** — Design the SQLite database schema (files, tags, categories, projects) and build the core data layer (CRUD operations).
