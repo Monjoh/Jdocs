@@ -10,6 +10,13 @@ Ideas, tech debt, considerations, and unscheduled items.
 - [ ] File preview panel
 - [ ] "Create new project" / "Create new folder" actions from sidebar (right-click or button)
 
+## UX Improvements
+- [ ] Tag badge/chip UI: type a tag + press Enter to add it as a visual badge below the input field, with "x" to remove — better than plain comma-separated text
+- [ ] Left pane split layout: upper section for project/folder tree, lower section shows file list when a folder is selected
+- [ ] Open file from left pane: double-click a file to open it in Finder/Explorer or open directly — offer both options (context menu or choice dialog)
+- [ ] Subfolder depth: support creating sub-subfolders, possibly auto-organize into subfolders based on tags
+- [ ] Categories removed (Session 05) — tags alone are sufficient. If categories are needed later, re-add as a special "pinned tag" or separate concept
+
 ## Tech Debt
 - [ ] Dark theme support: sidebar and drop zone have hardcoded light backgrounds — should respect system theme
 

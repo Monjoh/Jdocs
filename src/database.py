@@ -190,6 +190,12 @@ class Database:
 
     # --- Tags ---
 
+    def list_tags(self) -> List[str]:
+        rows = self.conn.execute(
+            "SELECT name FROM tags ORDER BY name"
+        ).fetchall()
+        return [r["name"] for r in rows]
+
     def create_tag(self, name: str) -> int:
         cur = self.conn.execute(
             "INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,)
@@ -226,6 +232,12 @@ class Database:
         return [r["name"] for r in rows]
 
     # --- Categories ---
+
+    def list_categories(self) -> List[str]:
+        rows = self.conn.execute(
+            "SELECT name FROM categories ORDER BY name"
+        ).fetchall()
+        return [r["name"] for r in rows]
 
     def create_category(self, name: str) -> int:
         cur = self.conn.execute(

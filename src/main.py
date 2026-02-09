@@ -8,9 +8,11 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QStackedWidget,
@@ -139,15 +141,46 @@ class PostDropPanel(QFrame):
         project_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
         self.content_layout.addWidget(project_label)
 
+        project_row = QHBoxLayout()
         self.project_combo = QComboBox()
-        self.content_layout.addWidget(self.project_combo)
+        project_row.addWidget(self.project_combo, stretch=1)
+        self.new_project_btn = QPushButton("+")
+        self.new_project_btn.setFixedWidth(30)
+        self.new_project_btn.setToolTip("Create new project")
+        project_row.addWidget(self.new_project_btn)
+        self.content_layout.addLayout(project_row)
 
         folder_label = QLabel("Folder:")
         folder_label.setStyleSheet("font-weight: bold; margin-top: 4px;")
         self.content_layout.addWidget(folder_label)
 
+        folder_row = QHBoxLayout()
         self.folder_combo = QComboBox()
-        self.content_layout.addWidget(self.folder_combo)
+        folder_row.addWidget(self.folder_combo, stretch=1)
+        self.new_folder_btn = QPushButton("+")
+        self.new_folder_btn.setFixedWidth(30)
+        self.new_folder_btn.setToolTip("Create new folder in selected project")
+        folder_row.addWidget(self.new_folder_btn)
+        self.content_layout.addLayout(folder_row)
+
+        self._add_separator()
+
+        # -- Tags, Category, Comment ------------------------------------------
+        tags_label = QLabel("Tags:")
+        tags_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        self.content_layout.addWidget(tags_label)
+
+        self.tags_input = QLineEdit()
+        self.tags_input.setPlaceholderText("Enter tags separated by commas (e.g. finance, Q1, report)")
+        self.content_layout.addWidget(self.tags_input)
+
+        comment_label = QLabel("Comment:")
+        comment_label.setStyleSheet("font-weight: bold; margin-top: 4px;")
+        self.content_layout.addWidget(comment_label)
+
+        self.comment_input = QLineEdit()
+        self.comment_input.setPlaceholderText("Optional note about this file")
+        self.content_layout.addWidget(self.comment_input)
 
         self._add_separator()
 
@@ -228,6 +261,22 @@ class PostDropPanel(QFrame):
         else:
             self.text_preview_header.hide()
             self.text_preview_label.hide()
+
+    def clear_inputs(self):
+        """Reset tag/comment fields for a new file."""
+        self.tags_input.clear()
+        self.comment_input.clear()
+
+    def get_tags(self) -> list[str]:
+        """Parse comma-separated tags from the input field."""
+        raw = self.tags_input.text().strip()
+        if not raw:
+            return []
+        return [t.strip() for t in raw.split(",") if t.strip()]
+
+    def get_comment(self) -> str:
+        """Get the comment text."""
+        return self.comment_input.text().strip()
 
     def set_projects(self, projects: list[dict]):
         """Populate the project dropdown. Each item stores the project ID as user data."""
@@ -333,6 +382,8 @@ class MainWindow(QMainWindow):
         self.post_drop_panel.project_combo.currentIndexChanged.connect(
             self._on_project_changed
         )
+        self.post_drop_panel.new_project_btn.clicked.connect(self._on_new_project)
+        self.post_drop_panel.new_folder_btn.clicked.connect(self._on_new_folder)
 
     def _seed_sample_data(self):
         """Add sample projects and folders so dropdowns have data to show."""
@@ -354,8 +405,9 @@ class MainWindow(QMainWindow):
             self.file_info.setStyleSheet("color: #cc3333; padding: 20px;")
             return
 
-        # Populate the panel with extraction results
+        # Populate the panel with extraction results and reset input fields
         self.post_drop_panel.populate(file_path, result)
+        self.post_drop_panel.clear_inputs()
 
         # Populate project dropdown from database
         self.post_drop_panel.set_projects(self.db.list_projects())
@@ -380,15 +432,86 @@ class MainWindow(QMainWindow):
         self.file_info.setText("Drop a file to get started")
         self.file_info.setStyleSheet("color: #aaa; padding: 20px;")
 
+    def _on_new_project(self):
+        """Prompt user for a new project name, create it in DB, refresh dropdown."""
+        name, ok = QInputDialog.getText(self, "New Project", "Project name:")
+        if ok and name.strip():
+            name = name.strip()
+            try:
+                self.db.create_project(name)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not create project: {e}")
+                return
+            # Refresh dropdown and select the new project
+            self.post_drop_panel.set_projects(self.db.list_projects())
+            idx = self.post_drop_panel.project_combo.findText(name)
+            if idx >= 0:
+                self.post_drop_panel.project_combo.setCurrentIndex(idx)
+            # Refresh sidebar
+            self.sidebar.load_from_database(self.db)
+
+    def _on_new_folder(self):
+        """Prompt user for a new folder name under the selected project."""
+        project_id = self.post_drop_panel.project_combo.currentData()
+        if project_id is None:
+            QMessageBox.warning(self, "No Project", "Please select a project first.")
+            return
+        name, ok = QInputDialog.getText(self, "New Folder", "Folder name:")
+        if ok and name.strip():
+            name = name.strip()
+            try:
+                self.db.create_folder(project_id, name)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not create folder: {e}")
+                return
+            # Refresh folder dropdown and select the new folder
+            folders = self.db.list_folders(project_id)
+            self.post_drop_panel.set_folders(folders)
+            idx = self.post_drop_panel.folder_combo.findText(name)
+            if idx >= 0:
+                self.post_drop_panel.folder_combo.setCurrentIndex(idx)
+            # Refresh sidebar
+            self.sidebar.load_from_database(self.db)
+
     def _on_approve(self):
-        """Placeholder — Session 05 will implement file move + DB save."""
-        result = self.post_drop_panel.extraction_result
-        project_name = self.post_drop_panel.project_combo.currentText()
-        folder_name = self.post_drop_panel.folder_combo.currentText()
-        print(f'[Approve] File: {result["file_name"]} -> Project: {project_name}, Folder: {folder_name}')
+        """Save the file record, tags, category, and comment to the database."""
+        panel = self.post_drop_panel
+        result = panel.extraction_result
+
+        # Validate project and folder selection
+        project_id = panel.project_combo.currentData()
+        folder_id = panel.folder_combo.currentData()
+        if project_id is None:
+            QMessageBox.warning(self, "Missing Project", "Please select a project before approving.")
+            return
+        if folder_id is None:
+            QMessageBox.warning(self, "Missing Folder", "Please select a folder before approving.")
+            return
+
+        # Register file in database
+        file_id = self.db.add_file(
+            original_name=result["file_name"],
+            stored_path=panel.source_path,
+            folder_id=folder_id,
+            size_bytes=result["size_bytes"],
+            file_type=result["file_type"],
+            metadata_text=result.get("text", ""),
+        )
+
+        # Save tags
+        for tag in panel.get_tags():
+            self.db.add_tag_to_file(file_id, tag)
+
+        # Save comment
+        comment = panel.get_comment()
+        if comment:
+            self.db.add_comment(file_id, comment)
+
+        # Refresh sidebar and return to DropZone
+        self.sidebar.load_from_database(self.db)
         self.stack.setCurrentIndex(0)
-        self.file_info.setText("Drop a file to get started")
-        self.file_info.setStyleSheet("color: #aaa; padding: 20px;")
+        self.file_info.setText(f'Saved: {result["file_name"]}')
+        self.file_info.setStyleSheet("color: #2e7d32; padding: 20px;")
 
 
 # -- Helpers ------------------------------------------------------------------

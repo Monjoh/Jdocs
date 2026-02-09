@@ -2,7 +2,7 @@
 
 ## Current State
 **Phase:** Development
-**Status:** Session 04 complete
+**Status:** Session 05 complete
 
 ## Session Roadmap
 
@@ -89,9 +89,21 @@
 ---
 
 ### Session 05 — Tagging, Categorization & Folder Management
-**Status:** Planned | **Date:** TBD
+**Status:** Done | **Date:** 2026-02-09
 
-**Deliverable:** Tag/category/comment input on the post-drop panel, ability to create new projects/folders, file move on approve.
+**Deliverable:** Full input-to-save flow with tags, category, comment, project/folder creation, and database persistence.
+
+**What was built:**
+- `src/main.py` — added tag input (comma-separated QLineEdit), editable category QComboBox, comment QLineEdit, "+" buttons for new project/folder creation (QInputDialog), full Approve logic with validation and DB save
+- `src/database.py` — added `list_tags()` and `list_categories()` helper methods
+- Approve flow: validates project/folder selection -> `db.add_file()` -> saves tags/category/comment -> refreshes sidebar -> shows green success message
+
+**Key decisions:**
+- Tags as free-text comma-separated input (flexible, no constraint to existing tags)
+- Category as editable QComboBox (pick existing or type new, auto-created on save)
+- Validation before save (project + folder required, QMessageBox warnings)
+- stored_path records original file location (physical move deferred to Session 07 root folder setup)
+- Sidebar refreshes after every create/approve to stay in sync
 
 ---
 
@@ -263,4 +275,4 @@ erDiagram
 ```
 
 ## Up Next
-**Session 05** — Tagging, categorization & folder management (tag/category/comment input, create new project/folder, file move on approve).
+**Session 06** — Search functionality (search bar with filters across filenames, metadata, tags, and categories).
