@@ -1,7 +1,8 @@
 # Session 02 — Database Schema & Core Data Layer
 
-**Date:** TBD
+**Date:** 2026-02-09
 **Goal:** Design the SQLite database schema and build the core data access layer for jDocs.
+**Deliverable:** Working `src/database.py` module with CRUD operations and passing tests.
 
 ## TODOs
 - [ ] Design database schema (tables: files, projects, folders, tags, categories)

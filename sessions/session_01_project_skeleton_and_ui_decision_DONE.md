@@ -2,13 +2,14 @@
 
 **Date:** 2026-02-09
 **Goal:** Choose the UI framework, set up project dependencies, create the app entry point with a basic window.
+**Deliverable:** A launchable app window with the base layout skeleton (search bar, sidebar with tree, drop zone).
 
 ## TODOs
 - [x] Decide: PyQt5 vs CustomTkinter
 - [x] Create `requirements.txt` with all planned dependencies
 - [x] Create `src/main.py` — app entry point with basic window
 - [x] Create basic layout skeleton (drag zone placeholder, search bar placeholder, sidebar placeholder)
-- [ ] Verify the app launches and displays the window (needs testing on Windows/Mac)
+- [x] Verify the app launches and displays the window (tested on macOS)
 
 ## Decisions
 - **UI Framework: PyQt5** — Better drag & drop support (built-in), more flexible layouts, mature widget ecosystem. Tradeoff is larger exe size (~80-150MB vs ~30-50MB) but worth it for jDocs' needs.
