@@ -17,7 +17,7 @@
 | Session | Title | Deliverable | Status | Date |
 |---------|-------|-------------|--------|------|
 | 01 | Project Skeleton & UI Framework Decision | Launchable app window with base layout skeleton | Done | 2026-02-09 |
-| 02 | Database Schema & Core Data Layer | Working database module with CRUD operations and passing tests | Planned | TBD |
+| 02 | Database Schema & Core Data Layer | Working database module with CRUD operations and passing tests | Done | 2026-02-09 |
 | 03 | File Metadata Extraction Engine | Module that extracts text/metadata from .docx, .xlsx, .pptx, images | Planned | TBD |
 | 04 | Drag & Drop File Input Workflow | Functional drag & drop with post-drop UI (project/folder dropdowns, metadata preview) | Planned | TBD |
 | 05 | Tagging, Categorization & Folder Management | Tag/category/comment input, create new project/folder, file move on approve | Planned | TBD |
@@ -168,4 +168,4 @@ erDiagram
 ```
 
 ## Up Next
-**Session 02** — Design the SQLite database schema (files, tags, categories, projects) and build the core data layer (CRUD operations).
+**Session 03** — Build the metadata extraction module for .docx, .xlsx, .pptx, and image files.
