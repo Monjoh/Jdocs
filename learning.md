@@ -9,14 +9,17 @@ Accumulated patterns and preferences from working on this project. Updated as we
 - Keep things simple and iterative
 
 ## Technical Preferences
-- Mac has Python 3.7, Windows has Python 3.13 — code must be compatible with 3.7+
-- Use `Union[X, Y]` from typing instead of `X | Y` syntax (requires 3.10+)
-- Use `List[Dict]`, `List[str]` from typing — NOT `list[dict]`, `list[str]` (requires 3.9+)
+- Mac has Python 3.10.4, Windows has Python 3.13 — code must be compatible with 3.10+
+- `X | Y` union syntax is now OK (3.10+)
+- `list[dict]`, `list[str]` lowercase generics are now OK (3.9+)
+
+## Workflow Habits
+- Always launch the app at the end of each session to verify it runs
+- Run full test suite before committing
 
 ## What Works Well
 _(To be filled based on session feedback)_
 
 ## What to Avoid
-- `str | Path` union syntax — breaks on Python < 3.10 (Mac has 3.7)
-- `list[dict]` subscript syntax — breaks on Python < 3.9
 - Always check ALL type hints when fixing compatibility, not just the first one found
+- Keep production builds lightweight: pytest and other dev tools must NOT be bundled in PyInstaller — only runtime deps (PyQt5, python-docx, openpyxl, python-pptx, Pillow)
