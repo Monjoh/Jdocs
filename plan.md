@@ -2,31 +2,113 @@
 
 ## Current State
 **Phase:** Development
-**Status:** Session 03 complete
-
-## What's Done
-- [x] Project concept defined (jDocs)
-- [x] Cross-platform support confirmed (Windows + macOS)
-- [x] Tech stack selected (Python, SQLite, PyInstaller)
-- [x] Use cases defined (File Input + Search)
-- [x] Workflow and tracking system designed
-- [x] Project structure created
+**Status:** Session 03 complete, Session 04 up next
 
 ## Session Roadmap
 
-| Session | Title | Deliverable | Status | Date |
-|---------|-------|-------------|--------|------|
-| 01 | Project Skeleton & UI Framework Decision | Launchable app window with base layout skeleton | Done | 2026-02-09 |
-| 02 | Database Schema & Core Data Layer | Working database module with CRUD operations and passing tests | Done | 2026-02-09 |
-| 03 | File Metadata Extraction Engine | Module that extracts text/metadata from .docx, .xlsx, .pptx, images | Done | 2026-02-09 |
-| 04 | Drag & Drop File Input Workflow | Functional drag & drop with post-drop UI (project/folder dropdowns, metadata preview) | Planned | TBD |
-| 05 | Tagging, Categorization & Folder Management | Tag/category/comment input, create new project/folder, file move on approve | Planned | TBD |
-| 06 | Search Functionality | Working search bar with filters across filenames, metadata, tags | Planned | TBD |
-| 07 | First Launch Setup & Root Folder Config | First-run wizard to select root folder, settings persistence | Planned | TBD |
-| 08 | Polish, Error Handling & Testing | Stable app with edge case handling and test coverage | Planned | TBD |
-| 09 | PyInstaller Packaging & Distribution | Standalone .exe (Windows) and .app (macOS) | Planned | TBD |
-
 > Sessions may be added, split, or reordered as the project evolves.
+
+---
+
+### Session 01 — Project Skeleton & UI Framework Decision
+**Status:** Done | **Date:** 2026-02-09
+
+**Deliverable:** Launchable app window with base layout skeleton.
+
+**What was built:**
+- Chose PyQt5 over CustomTkinter (better drag & drop, more flexible layouts)
+- `src/main.py` — app entry point with MainWindow, Sidebar (tree widget), DropZone, search bar
+- `requirements.txt` with all planned dependencies
+- Layout: search bar (top) > sidebar (left, 220px) + main panel (drop zone + file info placeholder)
+
+**Key decisions:**
+- PyQt5 for UI — larger exe size (~80-150MB) but worth it for drag & drop and widget ecosystem
+
+---
+
+### Session 02 — Database Schema & Core Data Layer
+**Status:** Done | **Date:** 2026-02-09
+
+**Deliverable:** Working `src/database.py` module with CRUD operations and 18 passing tests.
+
+**What was built:**
+- `src/database.py` — SQLite database layer with full CRUD for projects, folders, files, tags, categories, comments
+- `tests/test_database.py` — 18 tests covering all operations
+- Schema: 7 tables (projects, folders, files, tags, categories, file_tags, file_categories, file_comments)
+- Indexes on files(folder_id), files(file_type), folders(project_id)
+
+**Key decisions:**
+- CASCADE deletes (project deletion removes all child data)
+- INSERT OR IGNORE for tags/categories (duplicates are no-ops)
+- sqlite3.Row factory for dict-like access
+- `metadata_text` column stores extracted content (used by Session 03's extractor)
+
+---
+
+### Session 03 — File Metadata Extraction Engine
+**Status:** Done | **Date:** 2026-02-09
+
+**Deliverable:** Working `src/extractor.py` module with unified `extract()` interface and 21 passing tests.
+
+**What was built:**
+- `src/extractor.py` — `extract(file_path) -> dict` dispatching to type-specific handlers
+  - Word (.docx): paragraph text, author, title, paragraph_count
+  - Excel (.xlsx): cell text (first 50 rows/sheet), sheet_count, per-sheet names and row_counts
+  - PowerPoint (.pptx): slide text, author, title, slide_count
+  - Images (.png, .jpg): dimensions, format, mode, EXIF data
+  - Code files (.py, .js, etc.): raw text, line_count, char_count
+- `tests/test_extractor.py` — 21 tests across 6 test classes
+- `tests/samples/` — 6 sample files (docx, xlsx, pptx, png, jpg, py)
+
+**Key decisions:**
+- Consistent return dict: `file_name`, `file_type`, `size_bytes`, `text`, `metadata`, `error`
+- paragraph_count instead of page_count (python-docx can't determine page count)
+- Unsupported file types return a metadata note, not an error (app can still organize them)
+- EXIF values filtered to simple types (str/int/float) for SQLite compatibility
+
+---
+
+### Session 04 — Drag & Drop File Input Workflow
+**Status:** Planned | **Date:** TBD
+
+**Deliverable:** Functional drag & drop — user drops a file, sees extracted metadata, selects project/folder, and can approve or cancel.
+
+---
+
+### Session 05 — Tagging, Categorization & Folder Management
+**Status:** Planned | **Date:** TBD
+
+**Deliverable:** Tag/category/comment input on the post-drop panel, ability to create new projects/folders, file move on approve.
+
+---
+
+### Session 06 — Search Functionality
+**Status:** Planned | **Date:** TBD
+
+**Deliverable:** Working search bar with filters across filenames, metadata, tags, and categories.
+
+---
+
+### Session 07 — First Launch Setup & Root Folder Config
+**Status:** Planned | **Date:** TBD
+
+**Deliverable:** First-run wizard to select root folder, settings persistence.
+
+---
+
+### Session 08 — Polish, Error Handling & Testing
+**Status:** Planned | **Date:** TBD
+
+**Deliverable:** Stable app with edge case handling and comprehensive test coverage.
+
+---
+
+### Session 09 — PyInstaller Packaging & Distribution
+**Status:** Planned | **Date:** TBD
+
+**Deliverable:** Standalone .exe (Windows) and .app (macOS).
+
+---
 
 ## App Layout
 
