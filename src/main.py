@@ -293,6 +293,208 @@ class PostDropPanel(QFrame):
             self.folder_combo.addItem(f["name"], f["id"])
 
 
+class SearchResultsPanel(QFrame):
+    """Panel displaying search results as clickable cards."""
+
+    result_clicked = pyqtSignal(dict)  # emits the file record dict
+    back_clicked = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.setFrameStyle(QFrame.StyledPanel)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        # Header with result count and back button
+        header_bar = QHBoxLayout()
+        self.header_label = QLabel("Search Results")
+        self.header_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px;")
+        header_bar.addWidget(self.header_label)
+        header_bar.addStretch()
+        back_btn = QPushButton("Clear Search")
+        back_btn.setStyleSheet("padding: 6px 14px;")
+        back_btn.clicked.connect(self.back_clicked.emit)
+        header_bar.addWidget(back_btn)
+        outer.addLayout(header_bar)
+
+        # Scrollable results area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        self.results_widget = QWidget()
+        self.results_layout = QVBoxLayout(self.results_widget)
+        self.results_layout.setAlignment(Qt.AlignTop)
+        scroll.setWidget(self.results_widget)
+        outer.addWidget(scroll, stretch=1)
+
+    def show_results(self, results: list[dict], query: str):
+        """Display search results as clickable cards."""
+        # Clear previous results
+        while self.results_layout.count():
+            child = self.results_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        count = len(results)
+        self.header_label.setText(f'Search Results — {count} match{"es" if count != 1 else ""} for "{query}"')
+
+        if not results:
+            no_results = QLabel(f'No results found for "{query}"')
+            no_results.setAlignment(Qt.AlignCenter)
+            no_results.setStyleSheet("color: #888; font-size: 14px; padding: 40px;")
+            self.results_layout.addWidget(no_results)
+            return
+
+        for file_record in results:
+            card = self._make_result_card(file_record)
+            self.results_layout.addWidget(card)
+
+    def _make_result_card(self, file_record: dict) -> QFrame:
+        """Build a compact single-line clickable card for a search result."""
+        card = QFrame()
+        card.setFrameStyle(QFrame.StyledPanel)
+        card.setStyleSheet(
+            "QFrame { background-color: #fafafa; border: 1px solid #ddd; "
+            "border-radius: 4px; padding: 4px 8px; margin: 1px; }"
+            "QFrame:hover { background-color: #e8f0fe; border-color: #4a90d9; }"
+        )
+        card.setCursor(Qt.PointingHandCursor)
+
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(8)
+
+        # Filename (bold)
+        name_label = QLabel(f'<b>{file_record["original_name"]}</b>')
+        name_label.setStyleSheet("font-size: 12px;")
+        layout.addWidget(name_label)
+
+        # Project / Folder
+        path_text = f'{file_record.get("project_name", "?")} / {file_record.get("folder_name", "?")}'
+        path_label = QLabel(path_text)
+        path_label.setStyleSheet("color: #666; font-size: 11px;")
+        layout.addWidget(path_label)
+
+        # Tags (if any)
+        tags = file_record.get("tags", [])
+        if tags:
+            tags_label = QLabel(", ".join(tags))
+            tags_label.setStyleSheet("color: #4a90d9; font-size: 11px;")
+            layout.addWidget(tags_label)
+
+        layout.addStretch()
+
+        # Click handler — emit the file record
+        card.mousePressEvent = lambda event, r=file_record: self.result_clicked.emit(r)
+
+        return card
+
+
+class FileDetailPanel(QFrame):
+    """Read-only panel showing full details of a file from search results."""
+
+    back_clicked = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.setFrameStyle(QFrame.StyledPanel)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        # Scrollable content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        self.content_layout = QVBoxLayout(content)
+        self.content_layout.setAlignment(Qt.AlignTop)
+
+        self.file_name_label = QLabel()
+        self.file_name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.content_layout.addWidget(self.file_name_label)
+
+        self.file_info_label = QLabel()
+        self.file_info_label.setStyleSheet("color: #666; font-size: 12px;")
+        self.content_layout.addWidget(self.file_info_label)
+
+        self.location_label = QLabel()
+        self.location_label.setStyleSheet("font-size: 12px; margin-top: 4px;")
+        self.content_layout.addWidget(self.location_label)
+
+        self.tags_label = QLabel()
+        self.tags_label.setStyleSheet("color: #4a90d9; font-size: 12px; margin-top: 4px;")
+        self.content_layout.addWidget(self.tags_label)
+
+        self.comments_label = QLabel()
+        self.comments_label.setWordWrap(True)
+        self.comments_label.setStyleSheet("font-size: 12px; color: #555; margin-top: 4px;")
+        self.content_layout.addWidget(self.comments_label)
+
+        # Metadata text preview
+        self.meta_header = QLabel("Stored Text Content")
+        self.meta_header.setStyleSheet("font-weight: bold; font-size: 13px; margin-top: 12px;")
+        self.content_layout.addWidget(self.meta_header)
+
+        self.meta_preview = QLabel()
+        self.meta_preview.setWordWrap(True)
+        self.meta_preview.setStyleSheet(
+            "font-size: 11px; color: #555; background-color: #fafafa; "
+            "padding: 8px; border: 1px solid #ddd; border-radius: 4px;"
+        )
+        self.content_layout.addWidget(self.meta_preview)
+
+        scroll.setWidget(content)
+        outer.addWidget(scroll, stretch=1)
+
+        # Back button pinned at bottom
+        button_bar = QFrame()
+        button_bar.setStyleSheet("border-top: 1px solid #ddd; padding: 8px;")
+        button_layout = QHBoxLayout(button_bar)
+        button_layout.setContentsMargins(8, 8, 8, 8)
+        back_btn = QPushButton("Back to Results")
+        back_btn.setStyleSheet("padding: 8px 20px;")
+        back_btn.clicked.connect(self.back_clicked.emit)
+        button_layout.addWidget(back_btn)
+        button_layout.addStretch()
+        outer.addWidget(button_bar)
+
+    def populate(self, file_record: dict, comments: list[dict]):
+        """Fill the detail panel with file data from the database."""
+        self.file_name_label.setText(file_record["original_name"])
+        size_str = _format_size(file_record.get("size_bytes", 0) or 0)
+        self.file_info_label.setText(f'{file_record.get("file_type", "")}  |  {size_str}')
+
+        project = file_record.get("project_name", "?")
+        folder = file_record.get("folder_name", "?")
+        self.location_label.setText(f'Location: {project} / {folder}')
+
+        tags = file_record.get("tags", [])
+        if tags:
+            self.tags_label.setText("Tags: " + ", ".join(tags))
+            self.tags_label.show()
+        else:
+            self.tags_label.hide()
+
+        if comments:
+            comment_lines = [f'- {c["comment"]}' for c in comments]
+            self.comments_label.setText("Comments:\n" + "\n".join(comment_lines))
+            self.comments_label.show()
+        else:
+            self.comments_label.hide()
+
+        meta_text = file_record.get("metadata_text", "")
+        if meta_text and meta_text.strip():
+            preview = meta_text[:500] + "..." if len(meta_text) > 500 else meta_text
+            self.meta_preview.setText(preview)
+            self.meta_header.show()
+            self.meta_preview.show()
+        else:
+            self.meta_header.hide()
+            self.meta_preview.hide()
+
+
 class Sidebar(QFrame):
     """Sidebar with expandable/collapsible project & folder tree."""
 
@@ -362,8 +564,12 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.drop_zone = DropZone()
         self.post_drop_panel = PostDropPanel()
-        self.stack.addWidget(self.drop_zone)       # index 0
-        self.stack.addWidget(self.post_drop_panel)  # index 1
+        self.search_results_panel = SearchResultsPanel()
+        self.file_detail_panel = FileDetailPanel()
+        self.stack.addWidget(self.drop_zone)           # index 0
+        self.stack.addWidget(self.post_drop_panel)      # index 1
+        self.stack.addWidget(self.search_results_panel)  # index 2
+        self.stack.addWidget(self.file_detail_panel)     # index 3
         main_panel.addWidget(self.stack)
 
         # Status label below the main panel
@@ -384,6 +590,10 @@ class MainWindow(QMainWindow):
         )
         self.post_drop_panel.new_project_btn.clicked.connect(self._on_new_project)
         self.post_drop_panel.new_folder_btn.clicked.connect(self._on_new_folder)
+        self.search_bar.returnPressed.connect(self._on_search)
+        self.search_results_panel.result_clicked.connect(self._on_result_clicked)
+        self.search_results_panel.back_clicked.connect(self._on_clear_search)
+        self.file_detail_panel.back_clicked.connect(self._on_back_to_results)
 
     def _seed_sample_data(self):
         """Add sample projects and folders so dropdowns have data to show."""
@@ -431,6 +641,39 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(0)
         self.file_info.setText("Drop a file to get started")
         self.file_info.setStyleSheet("color: #aaa; padding: 20px;")
+
+    def _on_search(self):
+        """Run search query and display results."""
+        query = self.search_bar.text().strip()
+        if not query:
+            self._on_clear_search()
+            return
+        results = self.db.search_files(query)
+        self.search_results_panel.show_results(results, query)
+        self.stack.setCurrentIndex(2)
+        count = len(results)
+        self.file_info.setText(f'Found {count} result{"s" if count != 1 else ""} for "{query}"')
+        self.file_info.setStyleSheet("color: #4a90d9; padding: 20px;")
+
+    def _on_clear_search(self):
+        """Clear search and return to DropZone."""
+        self.search_bar.clear()
+        self.stack.setCurrentIndex(0)
+        self.file_info.setText("Drop a file to get started")
+        self.file_info.setStyleSheet("color: #aaa; padding: 20px;")
+
+    def _on_result_clicked(self, file_record: dict):
+        """Show file detail panel for a clicked search result."""
+        comments = self.db.get_file_comments(file_record["id"])
+        self.file_detail_panel.populate(file_record, comments)
+        self.stack.setCurrentIndex(3)
+        self.file_info.setText(f'Viewing: {file_record["original_name"]}')
+        self.file_info.setStyleSheet("color: #4a90d9; padding: 20px;")
+
+    def _on_back_to_results(self):
+        """Return to search results from file detail view."""
+        self.stack.setCurrentIndex(2)
+        self.file_info.setStyleSheet("color: #4a90d9; padding: 20px;")
 
     def _on_new_project(self):
         """Prompt user for a new project name, create it in DB, refresh dropdown."""

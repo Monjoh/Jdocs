@@ -294,3 +294,62 @@ class Database:
     def delete_comment(self, comment_id: int):
         self.conn.execute("DELETE FROM file_comments WHERE id = ?", (comment_id,))
         self.conn.commit()
+
+    # --- Search ---
+
+    def search_files(self, query: str) -> List[Dict]:
+        """Search files across filename, metadata_text, file_type, tags, and comments.
+
+        Supports multi-word queries: splits into individual words, matches files
+        containing ANY word, then sorts by number of words matched (most relevant first).
+        Returns deduplicated file records enriched with project_name, folder_name, and tags.
+        """
+        if not query or not query.strip():
+            return []
+
+        words = [w for w in query.strip().split() if w]
+        if not words:
+            return []
+
+        # For each word, find matching file IDs and count how many words each file matches
+        file_scores: dict[int, int] = {}
+        for word in words:
+            pattern = f"%{word}%"
+            rows = self.conn.execute(
+                """SELECT DISTINCT f.id
+                   FROM files f
+                   LEFT JOIN file_tags ft ON f.id = ft.file_id
+                   LEFT JOIN tags t ON ft.tag_id = t.id
+                   LEFT JOIN file_comments fc ON f.id = fc.file_id
+                   WHERE f.original_name LIKE ? COLLATE NOCASE
+                      OR f.metadata_text LIKE ? COLLATE NOCASE
+                      OR f.file_type LIKE ? COLLATE NOCASE
+                      OR t.name LIKE ? COLLATE NOCASE
+                      OR fc.comment LIKE ? COLLATE NOCASE""",
+                (pattern, pattern, pattern, pattern, pattern),
+            ).fetchall()
+            for row in rows:
+                file_scores[row["id"]] = file_scores.get(row["id"], 0) + 1
+
+        if not file_scores:
+            return []
+
+        # Sort by match count descending (most relevant first), then by ID descending (recent first)
+        sorted_ids = sorted(file_scores.keys(), key=lambda fid: (-file_scores[fid], -fid))
+
+        results = []
+        for fid in sorted_ids:
+            row = self.conn.execute(
+                """SELECT f.*, fo.name AS folder_name, p.name AS project_name
+                   FROM files f
+                   JOIN folders fo ON f.folder_id = fo.id
+                   JOIN projects p ON fo.project_id = p.id
+                   WHERE f.id = ?""",
+                (fid,),
+            ).fetchone()
+            if row:
+                entry = dict(row)
+                entry["tags"] = self.get_file_tags(fid)
+                entry["match_score"] = file_scores[fid]
+                results.append(entry)
+        return results

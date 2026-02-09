@@ -160,6 +160,85 @@ class TestDatabase(unittest.TestCase):
         self.db.delete_comment(cid)
         self.assertEqual(self.db.get_file_comments(file_id), [])
 
+    # --- Search ---
+
+    def test_search_by_filename(self):
+        """search_files() should match against files.original_name (case-insensitive)."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        self.db.add_file("quarterly_report.xlsx", "/path/quarterly_report.xlsx", fid,
+                         file_type=".xlsx", metadata_text="revenue data")
+        results = self.db.search_files("quarterly")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["original_name"], "quarterly_report.xlsx")
+        # Case-insensitive
+        results_upper = self.db.search_files("QUARTERLY")
+        self.assertEqual(len(results_upper), 1)
+
+    def test_search_by_metadata_text(self):
+        """search_files() should match against files.metadata_text content."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        self.db.add_file("data.csv", "/path/data.csv", fid,
+                         file_type=".csv", metadata_text="Alice,Engineering,95000")
+        results = self.db.search_files("Engineering")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["original_name"], "data.csv")
+
+    def test_search_by_tag(self):
+        """search_files() should match against tag names associated with a file."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        file_id = self.db.add_file("notes.txt", "/path/notes.txt", fid, file_type=".txt")
+        self.db.add_tag_to_file(file_id, "finance")
+        self.db.add_tag_to_file(file_id, "Q1")
+        results = self.db.search_files("finance")
+        self.assertEqual(len(results), 1)
+        self.assertIn("finance", results[0]["tags"])
+
+    def test_search_by_file_type(self):
+        """search_files() should match against files.file_type (extension)."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Code")
+        self.db.add_file("app.py", "/path/app.py", fid, file_type=".py")
+        self.db.add_file("readme.md", "/path/readme.md", fid, file_type=".md")
+        results = self.db.search_files(".py")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["original_name"], "app.py")
+
+    def test_search_deduplication(self):
+        """A file matching on both filename and tag should appear only once."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        file_id = self.db.add_file("finance_report.xlsx", "/path/finance_report.xlsx", fid,
+                                   file_type=".xlsx", metadata_text="finance data")
+        self.db.add_tag_to_file(file_id, "finance")
+        # "finance" matches filename, metadata_text, AND tag — should still return 1 result
+        results = self.db.search_files("finance")
+        self.assertEqual(len(results), 1)
+
+    def test_search_includes_project_and_folder(self):
+        """Search results should include project_name and folder_name."""
+        pid = self.db.create_project("Personal")
+        fid = self.db.create_folder(pid, "Photos")
+        self.db.add_file("sunset.jpg", "/path/sunset.jpg", fid, file_type=".jpg")
+        results = self.db.search_files("sunset")
+        self.assertEqual(results[0]["project_name"], "Personal")
+        self.assertEqual(results[0]["folder_name"], "Photos")
+
+    def test_search_empty_query(self):
+        """Empty or whitespace query should return empty list."""
+        self.assertEqual(self.db.search_files(""), [])
+        self.assertEqual(self.db.search_files("   "), [])
+
+    def test_search_no_matches(self):
+        """Query with no matches should return empty list."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        self.db.add_file("report.xlsx", "/path/report.xlsx", fid)
+        results = self.db.search_files("nonexistent_xyz_123")
+        self.assertEqual(results, [])
+
     # --- Cascade deletes ---
 
     def test_delete_project_cascades(self):

@@ -2,7 +2,7 @@
 
 ## Current State
 **Phase:** Development
-**Status:** Session 05 complete
+**Status:** Session 06 complete
 
 ## Session Roadmap
 
@@ -108,9 +108,20 @@
 ---
 
 ### Session 06 — Search Functionality
-**Status:** Planned | **Date:** TBD
+**Status:** Done | **Date:** 2026-02-09
 
-**Deliverable:** Working search bar with filters across filenames, metadata, tags, and categories.
+**Deliverable:** Working search with results as clickable cards, file detail view, and back navigation.
+
+**What was built:**
+- `src/database.py` — `search_files()` method querying across filename, metadata_text, file_type, and tags with case-insensitive LIKE, DISTINCT deduplication, and project/folder enrichment
+- `src/main.py` — SearchResultsPanel (scrollable card-based results with hover effects), FileDetailPanel (read-only file info with comments/metadata preview), search bar wired to Enter key, QStackedWidget expanded to 4 pages
+- `tests/test_database.py` — 8 new search tests (filename, metadata, tag, file_type, dedup, project/folder, empty query, no matches)
+
+**Key decisions:**
+- SQL LIKE over FTS5 (sufficient for desktop scale, simpler setup)
+- Search on Enter key only (not every keystroke)
+- Results enriched with tags via individual queries (fast enough for expected result sizes)
+- FileDetailPanel shows stored metadata_text, not re-extracted data (works even if file is moved/deleted)
 
 ---
 
@@ -275,4 +286,4 @@ erDiagram
 ```
 
 ## Up Next
-**Session 06** — Search functionality (search bar with filters across filenames, metadata, tags, and categories).
+**Session 07** — First launch setup & root folder config (first-run wizard, settings persistence).
