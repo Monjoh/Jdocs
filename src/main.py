@@ -9,6 +9,8 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -34,12 +36,12 @@ class DropZone(QFrame):
 
 
 class Sidebar(QFrame):
-    """Placeholder sidebar for projects/folders navigation."""
+    """Sidebar with expandable/collapsible project & folder tree."""
 
     def __init__(self):
         super().__init__()
         self.setFrameStyle(QFrame.StyledPanel)
-        self.setFixedWidth(200)
+        self.setFixedWidth(220)
         self.setStyleSheet("background-color: #e8e8e8; border-radius: 4px;")
 
         layout = QVBoxLayout(self)
@@ -47,10 +49,26 @@ class Sidebar(QFrame):
         header.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(header)
 
-        placeholder = QLabel("No projects yet")
-        placeholder.setStyleSheet("color: #999; font-size: 12px;")
-        layout.addWidget(placeholder)
-        layout.addStretch()
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.tree.setStyleSheet(
+            "QTreeWidget { background-color: #e8e8e8; border: none; font-size: 13px; }"
+        )
+        layout.addWidget(self.tree)
+
+        self._add_sample_projects()
+
+    def _add_sample_projects(self):
+        """Add placeholder projects to show the tree structure."""
+        project1 = QTreeWidgetItem(self.tree, ["Work Documents"])
+        QTreeWidgetItem(project1, ["Reports"])
+        QTreeWidgetItem(project1, ["Presentations"])
+
+        project2 = QTreeWidgetItem(self.tree, ["Personal"])
+        QTreeWidgetItem(project2, ["Photos"])
+        QTreeWidgetItem(project2, ["Code Snippets"])
+
+        self.tree.expandAll()
 
 
 class MainWindow(QMainWindow):
@@ -59,7 +77,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("jDocs")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(700, 500)
+        self.resize(750, 550)
 
         central = QWidget()
         self.setCentralWidget(central)
