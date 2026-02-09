@@ -8,6 +8,7 @@ Ideas, tech debt, considerations, and unscheduled items.
 - [ ] Bulk import/organize existing folders
 - [ ] Export metadata/tags to CSV
 - [ ] File preview panel
+- [ ] "Create new project" / "Create new folder" actions from sidebar (right-click or button)
 
 ## Tech Debt
 _(None yet — project hasn't started coding)_
