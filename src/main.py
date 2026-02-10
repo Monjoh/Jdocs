@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
 from database import Database
 from extractor import extract
 from settings import derive_db_path, is_configured, load_settings, save_settings
-from utils import format_metadata, format_size, sanitize_name
+from utils import format_metadata, format_size, sanitize_name, scan_untracked_files
 
 
 # -- Styles ------------------------------------------------------------------
@@ -109,10 +109,13 @@ class FirstLaunchDialog(QDialog):
 # -- Widgets ------------------------------------------------------------------
 
 
-class DropZone(QFrame):
-    """Drag & drop area that accepts files and emits their path."""
+MAX_BATCH_FILES = 10
 
-    file_dropped = pyqtSignal(str)
+
+class DropZone(QFrame):
+    """Drag & drop area that accepts files and emits their paths."""
+
+    files_dropped = pyqtSignal(list)
 
     def __init__(self):
         super().__init__()
@@ -132,9 +135,9 @@ class DropZone(QFrame):
 
     def mousePressEvent(self, event):
         """Open a file dialog when the drop zone is clicked."""
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select a file")
-        if file_path:
-            self.file_dropped.emit(file_path)
+        paths, _ = QFileDialog.getOpenFileNames(self, "Select files")
+        if paths:
+            self.files_dropped.emit(paths)
 
     # -- Drag & drop event handlers -------------------------------------------
 
@@ -158,18 +161,17 @@ class DropZone(QFrame):
         self.setStyleSheet(DROPZONE_NORMAL)
 
     def dropEvent(self, event):
-        """Capture the first dropped file path and emit signal."""
+        """Capture all dropped file paths and emit signal."""
         self.setStyleSheet(DROPZONE_NORMAL)
         urls = event.mimeData().urls()
-        if urls:
-            file_path = urls[0].toLocalFile()
-            if file_path:
-                self.file_dropped.emit(file_path)
+        paths = [u.toLocalFile() for u in urls if u.toLocalFile()]
+        if paths:
+            self.files_dropped.emit(paths)
         event.acceptProposedAction()
 
 
 class PostDropPanel(QFrame):
-    """Panel shown after a file is dropped — displays metadata and project/folder selection."""
+    """Panel shown after files are dropped — displays metadata and project/folder selection."""
 
     cancel_clicked = pyqtSignal()
     approve_clicked = pyqtSignal()
@@ -178,9 +180,9 @@ class PostDropPanel(QFrame):
         super().__init__()
         self.setFrameStyle(QFrame.StyledPanel)
 
-        # Store current extraction result and source path
-        self.extraction_result = None
-        self.source_path = None
+        # Store extraction results and source paths (lists for batch support)
+        self.extraction_results = []
+        self.source_paths = []
 
         # Outer layout: scrollable content on top, buttons pinned at bottom
         outer = QVBoxLayout(self)
@@ -203,6 +205,16 @@ class PostDropPanel(QFrame):
         self.file_info_label = QLabel()
         self.file_info_label.setStyleSheet("color: #666; font-size: 12px;")
         self.content_layout.addWidget(self.file_info_label)
+
+        # -- Batch file list (hidden in single-file mode) ---------------------
+        self.batch_list_label = QLabel()
+        self.batch_list_label.setWordWrap(True)
+        self.batch_list_label.setStyleSheet(
+            "font-size: 11px; color: #555; background-color: #fafafa; "
+            "padding: 8px; border: 1px solid #ddd; border-radius: 4px;"
+        )
+        self.batch_list_label.hide()
+        self.content_layout.addWidget(self.batch_list_label)
 
         self._add_separator()
 
@@ -254,17 +266,17 @@ class PostDropPanel(QFrame):
 
         self._add_separator()
 
-        # -- Metadata preview -------------------------------------------------
-        meta_header = QLabel("Extracted Metadata")
-        meta_header.setStyleSheet("font-weight: bold; font-size: 13px; margin-top: 8px;")
-        self.content_layout.addWidget(meta_header)
+        # -- Metadata preview (single-file mode only) -------------------------
+        self.meta_header = QLabel("Extracted Metadata")
+        self.meta_header.setStyleSheet("font-weight: bold; font-size: 13px; margin-top: 8px;")
+        self.content_layout.addWidget(self.meta_header)
 
         self.metadata_label = QLabel()
         self.metadata_label.setWordWrap(True)
         self.metadata_label.setStyleSheet("font-size: 12px; color: #444; padding: 4px;")
         self.content_layout.addWidget(self.metadata_label)
 
-        # -- Text preview -----------------------------------------------------
+        # -- Text preview (single-file mode only) -----------------------------
         self.text_preview_header = QLabel("Text Preview")
         self.text_preview_header.setStyleSheet("font-weight: bold; font-size: 13px; margin-top: 8px;")
         self.content_layout.addWidget(self.text_preview_header)
@@ -308,32 +320,59 @@ class PostDropPanel(QFrame):
         line.setStyleSheet("color: #ddd;")
         self.content_layout.addWidget(line)
 
-    def populate(self, file_path: str, result: dict):
-        """Fill the panel with extraction data for the dropped file."""
-        self.extraction_result = result
-        self.source_path = file_path
+    def is_batch(self) -> bool:
+        """Return True if multiple files are loaded."""
+        return len(self.extraction_results) > 1
 
-        # -- File header --
-        self.file_name_label.setText(result["file_name"])
-        size_str = format_size(result["size_bytes"])
-        self.file_info_label.setText(f'{result["file_type"]}  |  {size_str}')
+    def populate(self, file_paths: list[str], results: list[dict]):
+        """Fill the panel with extraction data for dropped file(s)."""
+        self.extraction_results = results
+        self.source_paths = file_paths
 
-        # -- Metadata preview (type-specific) --
-        self.metadata_label.setText(format_metadata(result))
+        if len(results) == 1:
+            # -- Single-file mode --
+            result = results[0]
+            self.file_name_label.setText(result["file_name"])
+            size_str = format_size(result["size_bytes"])
+            self.file_info_label.setText(f'{result["file_type"]}  |  {size_str}')
+            self.batch_list_label.hide()
 
-        # -- Text preview --
-        text = result.get("text", "")
-        if text.strip():
-            preview = text[:200] + "..." if len(text) > 200 else text
-            self.text_preview_label.setText(preview)
-            self.text_preview_header.show()
-            self.text_preview_label.show()
+            # Metadata preview
+            self.metadata_label.setText(format_metadata(result))
+            self.meta_header.show()
+            self.metadata_label.show()
+
+            # Text preview
+            text = result.get("text", "")
+            if text.strip():
+                preview = text[:200] + "..." if len(text) > 200 else text
+                self.text_preview_label.setText(preview)
+                self.text_preview_header.show()
+                self.text_preview_label.show()
+            else:
+                self.text_preview_header.hide()
+                self.text_preview_label.hide()
         else:
+            # -- Batch mode --
+            total_size = sum(r["size_bytes"] for r in results)
+            self.file_name_label.setText(f"{len(results)} files selected")
+            self.file_info_label.setText(f"Total size: {format_size(total_size)}")
+
+            # Build file list
+            lines = []
+            for r in results:
+                lines.append(f'  {r["file_name"]}  ({format_size(r["size_bytes"])})')
+            self.batch_list_label.setText("\n".join(lines))
+            self.batch_list_label.show()
+
+            # Hide single-file metadata/text previews
+            self.meta_header.hide()
+            self.metadata_label.hide()
             self.text_preview_header.hide()
             self.text_preview_label.hide()
 
     def clear_inputs(self):
-        """Reset tag/comment fields for a new file."""
+        """Reset tag/comment fields for new files."""
         self.tags_input.clear()
         self.comment_input.clear()
 
@@ -651,6 +690,10 @@ class MainWindow(QMainWindow):
         change_root_action.triggered.connect(self._on_change_root_folder)
         settings_menu.addAction(change_root_action)
 
+        scan_action = QAction("Scan for Untracked Files...", self)
+        scan_action.triggered.connect(self._on_scan_untracked)
+        settings_menu.addAction(scan_action)
+
         central = QWidget()
         self.setCentralWidget(central)
 
@@ -695,7 +738,7 @@ class MainWindow(QMainWindow):
         root_layout.addLayout(content_layout, stretch=1)
 
         # -- Connect signals --
-        self.drop_zone.file_dropped.connect(self._on_file_dropped)
+        self.drop_zone.files_dropped.connect(self._on_files_dropped)
         self.post_drop_panel.cancel_clicked.connect(self._on_cancel)
         self.post_drop_panel.approve_clicked.connect(self._on_approve)
         self.post_drop_panel.project_combo.currentIndexChanged.connect(
@@ -746,19 +789,67 @@ class MainWindow(QMainWindow):
             self, "Restart Required", "Please restart jDocs to use the new root folder."
         )
 
-    def _on_file_dropped(self, file_path: str):
-        """Called when a file is dropped — extract metadata and show the post-drop panel."""
-        result = extract(file_path)
+    def _on_scan_untracked(self):
+        """Scan root folder for files not tracked in the database."""
+        tracked = self.db.get_all_stored_paths()
+        untracked = scan_untracked_files(self.root_folder, tracked)
 
-        # If extraction returned an error, show a warning dialog and update status label
-        if result["error"]:
-            QMessageBox.warning(self, "Extraction Error", result["error"])
-            self.file_info.setText(f'Error: {result["error"]}')
+        if not untracked:
+            QMessageBox.information(
+                self, "Scan Complete", "All files in the root folder are tracked by jDocs."
+            )
+            return
+
+        # Build a summary message
+        lines = [f"Found {len(untracked)} untracked file(s):\n"]
+        for f in untracked[:50]:
+            lines.append(f'  {f["relative_path"]}  ({format_size(f["size_bytes"])})')
+        if len(untracked) > 50:
+            lines.append(f"\n  ... and {len(untracked) - 50} more")
+        lines.append("\nThese files exist in the root folder but are not tracked by jDocs.")
+
+        QMessageBox.information(self, "Scan Complete", "\n".join(lines))
+
+    def _on_files_dropped(self, file_paths: list[str]):
+        """Called when file(s) are dropped — extract metadata and show the post-drop panel."""
+        # Enforce batch limit
+        if len(file_paths) > MAX_BATCH_FILES:
+            QMessageBox.warning(
+                self,
+                "Too Many Files",
+                f"You can drop up to {MAX_BATCH_FILES} files at once.\n"
+                f"You selected {len(file_paths)} files.",
+            )
+            return
+
+        # Extract metadata for each file, collect successes and errors
+        results = []
+        valid_paths = []
+        errors = []
+        for fp in file_paths:
+            result = extract(fp)
+            if result["error"]:
+                errors.append(f'{result["file_name"]}: {result["error"]}')
+            else:
+                results.append(result)
+                valid_paths.append(fp)
+
+        # If all files failed, show errors and abort
+        if not results:
+            error_msg = "\n".join(errors)
+            QMessageBox.warning(self, "Extraction Error", error_msg)
+            self.file_info.setText("Extraction failed for all files")
             self.file_info.setStyleSheet("color: #cc3333; padding: 20px;")
             return
 
+        # If some files failed, warn but continue with the rest
+        if errors:
+            error_msg = "The following files could not be processed and were skipped:\n\n"
+            error_msg += "\n".join(errors)
+            QMessageBox.warning(self, "Some Files Skipped", error_msg)
+
         # Populate the panel with extraction results and reset input fields
-        self.post_drop_panel.populate(file_path, result)
+        self.post_drop_panel.populate(valid_paths, results)
         self.post_drop_panel.clear_inputs()
 
         # Populate project dropdown from database
@@ -766,7 +857,10 @@ class MainWindow(QMainWindow):
 
         # Switch to post-drop panel
         self.stack.setCurrentIndex(1)
-        self.file_info.setText(f'Reviewing: {result["file_name"]}')
+        if len(results) == 1:
+            self.file_info.setText(f'Reviewing: {results[0]["file_name"]}')
+        else:
+            self.file_info.setText(f'Reviewing {len(results)} files')
         self.file_info.setStyleSheet("color: #4a90d9; padding: 20px;")
 
     def _on_project_changed(self, index: int):
@@ -865,9 +959,8 @@ class MainWindow(QMainWindow):
             self.sidebar.load_from_database(self.db)
 
     def _on_approve(self):
-        """Save the file record, copy file to root folder, and persist to database."""
+        """Save file record(s), copy to root folder, and persist to database."""
         panel = self.post_drop_panel
-        result = panel.extraction_result
 
         # Validate project and folder selection
         project_id = panel.project_combo.currentData()
@@ -879,76 +972,83 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Missing Folder", "Please select a folder before approving.")
             return
 
-        # Validate source file still exists
-        source = Path(panel.source_path)
-        if not source.exists():
-            QMessageBox.warning(
-                self,
-                "File Not Found",
-                "The original file no longer exists at its original location.\n"
-                "It may have been moved or deleted.",
-            )
-            return
-
-        # Build target path: root/project_name/folder_name/filename
+        # Build target directory
         project = self.db.get_project(project_id)
         folder = self.db.get_folder(folder_id)
         target_dir = self.root_folder / project["name"] / folder["name"]
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        target = target_dir / source.name
+        tags = panel.get_tags()
+        comment = panel.get_comment()
 
-        # Handle duplicate filenames
-        if target.exists():
-            stem = source.stem
-            suffix = source.suffix
-            counter = 1
-            while target.exists():
-                target = target_dir / f"{stem}_{counter}{suffix}"
-                counter += 1
+        saved_count = 0
+        errors = []
 
-        # Copy file (preserves metadata, original stays in place)
-        try:
-            shutil.copy2(str(source), str(target))
-        except OSError as e:
-            QMessageBox.warning(self, "Copy Failed", f"Could not copy file:\n{e}")
-            return
+        for source_path, result in zip(panel.source_paths, panel.extraction_results):
+            source = Path(source_path)
 
-        # Register file in database — if this fails, clean up the copied file
-        try:
-            file_id = self.db.add_file(
-                original_name=result["file_name"],
-                stored_path=str(target),
-                folder_id=folder_id,
-                size_bytes=result["size_bytes"],
-                file_type=result["file_type"],
-                metadata_text=result.get("text", ""),
-            )
+            # Validate source file still exists
+            if not source.exists():
+                errors.append(f'{result["file_name"]}: original file no longer exists')
+                continue
 
-            # Save tags
-            for tag in panel.get_tags():
-                self.db.add_tag_to_file(file_id, tag)
+            # Determine target path with duplicate handling
+            target = target_dir / source.name
+            if target.exists():
+                stem = source.stem
+                suffix = source.suffix
+                counter = 1
+                while target.exists():
+                    target = target_dir / f"{stem}_{counter}{suffix}"
+                    counter += 1
 
-            # Save comment
-            comment = panel.get_comment()
-            if comment:
-                self.db.add_comment(file_id, comment)
-        except Exception as e:
-            # Clean up the copied file since DB save failed
+            # Copy file
             try:
-                target.unlink(missing_ok=True)
-            except OSError:
-                pass
-            QMessageBox.warning(
-                self, "Save Failed", f"Could not save to database:\n{e}\n\nThe copied file has been removed."
-            )
-            return
+                shutil.copy2(str(source), str(target))
+            except OSError as e:
+                errors.append(f'{result["file_name"]}: copy failed — {e}')
+                continue
+
+            # Register in database — clean up copied file if DB write fails
+            try:
+                file_id = self.db.add_file(
+                    original_name=result["file_name"],
+                    stored_path=str(target),
+                    folder_id=folder_id,
+                    size_bytes=result["size_bytes"],
+                    file_type=result["file_type"],
+                    metadata_text=result.get("text", ""),
+                )
+                for tag in tags:
+                    self.db.add_tag_to_file(file_id, tag)
+                if comment:
+                    self.db.add_comment(file_id, comment)
+                saved_count += 1
+            except Exception as e:
+                try:
+                    target.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                errors.append(f'{result["file_name"]}: database error — {e}')
+
+        # Show results
+        if errors:
+            error_msg = f"Saved {saved_count} file(s). The following failed:\n\n"
+            error_msg += "\n".join(errors)
+            QMessageBox.warning(self, "Some Files Failed", error_msg)
 
         # Refresh sidebar and return to DropZone
         self.sidebar.load_from_database(self.db)
         self.stack.setCurrentIndex(0)
-        self.file_info.setText(f'Saved: {result["file_name"]}')
-        self.file_info.setStyleSheet("color: #2e7d32; padding: 20px;")
+        if saved_count > 0:
+            if saved_count == 1 and len(panel.extraction_results) == 1:
+                self.file_info.setText(f'Saved: {panel.extraction_results[0]["file_name"]}')
+            else:
+                self.file_info.setText(f'Saved {saved_count} file(s)')
+            self.file_info.setStyleSheet("color: #2e7d32; padding: 20px;")
+        else:
+            self.file_info.setText("No files were saved")
+            self.file_info.setStyleSheet("color: #cc3333; padding: 20px;")
 
 
 

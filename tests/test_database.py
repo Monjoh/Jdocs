@@ -300,6 +300,21 @@ class TestDatabase(unittest.TestCase):
         # The one matching more words should come first
         self.assertEqual(results[0]["original_name"], "annual_report.xlsx")
 
+    # --- Scanning ---
+
+    def test_get_all_stored_paths_empty(self):
+        """get_all_stored_paths() should return empty set when no files exist."""
+        self.assertEqual(self.db.get_all_stored_paths(), set())
+
+    def test_get_all_stored_paths(self):
+        """get_all_stored_paths() should return all stored_path values."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        self.db.add_file("a.xlsx", "/root/Work/Reports/a.xlsx", fid)
+        self.db.add_file("b.docx", "/root/Work/Reports/b.docx", fid)
+        paths = self.db.get_all_stored_paths()
+        self.assertEqual(paths, {"/root/Work/Reports/a.xlsx", "/root/Work/Reports/b.docx"})
+
     def test_search_by_comment(self):
         """search_files() should match against file comment text."""
         pid = self.db.create_project("Work")

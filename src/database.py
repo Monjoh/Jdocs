@@ -301,6 +301,13 @@ class Database:
         self.conn.execute("DELETE FROM file_comments WHERE id = ?", (comment_id,))
         self.conn.commit()
 
+    # --- Scanning ---
+
+    def get_all_stored_paths(self) -> set[str]:
+        """Return a set of all stored_path values for tracked files."""
+        rows = self.conn.execute("SELECT stored_path FROM files").fetchall()
+        return {r["stored_path"] for r in rows}
+
     # --- Search ---
 
     def search_files(self, query: str) -> List[Dict]:

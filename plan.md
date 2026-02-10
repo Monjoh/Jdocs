@@ -2,7 +2,7 @@
 
 ## Current State
 **Phase:** Development
-**Status:** Session 06 complete
+**Status:** Session 08 complete
 
 ## Session Roadmap
 
@@ -125,7 +125,7 @@
 
 ---
 
-### Session 07 — First Launch Setup & Root Folder Config
+### Session 07 — First Launch Setup & Root Folder Config ✓
 **Status:** Done | **Date:** 2026-02-10
 
 **Deliverable:** First-run wizard, persistent database, physical file copy on approve.
@@ -144,17 +144,76 @@
 
 ---
 
-### Session 08 — Polish, Error Handling & Testing
-**Status:** Planned | **Date:** TBD
+### Session 08 — Polish, Error Handling & Testing ✓
+**Status:** Done | **Date:** 2026-02-10
 
 **Deliverable:** Stable app with edge case handling and comprehensive test coverage.
 
+**What was built:**
+- `src/utils.py` (new) — extracted `format_size`, `format_metadata`, `sanitize_name` from main.py into standalone module (no Qt dependency, testable anywhere)
+- `src/main.py` — source file validation before copy, DB error cleanup (delete orphaned copy on failure), QMessageBox for extraction errors, name sanitization on project/folder creation, button text changed to "Approve & Copy", root folder indicator in sidebar, empty sidebar hint, removed unused QMenuBar import
+- `src/extractor.py` — directory path check, 10MB file size cap for code/CSV, BadZipFile caught with user-friendly password-protected message
+- `src/database.py` — IntegrityError on duplicate stored_path raises ValueError with clear message
+- `tests/test_main.py` (new) — 28 tests for format_size, format_metadata, sanitize_name
+- `tests/test_extractor.py` — 9 new tests for directories, corrupt/empty files, password-protected detection
+- `tests/test_database.py` — 4 new tests for duplicate paths, SQL special chars, multi-word relevance ordering, comment search
+
+**Key decisions:**
+- Extracted pure functions to `src/utils.py` to avoid Qt import overhead in tests
+- Copy-then-cleanup pattern for approve flow (if DB write fails, delete the copied file)
+- 10MB cap on text extraction for code/CSV files to prevent memory issues with binary files
+- BadZipFile → friendly "password-protected or corrupted" message rather than cryptic errors
+
 ---
 
-### Session 09 — PyInstaller Packaging & Distribution
+### Session 09 — Multi-file Batch Upload & Folder Scanning
+**Status:** Next | **Date:** TBD
+
+**Deliverable:** Batch file input (drop/browse multiple files, all assigned to same project/folder/tags/comment) with configurable file count limit; folder scan to detect untracked files in the root folder.
+
+**Planned scope:**
+- **Batch upload:** Modify DropZone to accept multiple files, process all through extractor, show combined post-drop panel with shared project/folder/tags/comment fields, approve copies all files at once. Cap at ~10 files per batch to keep processing responsive.
+- **Folder scanning:** New "Scan" action that walks the root folder tree, compares against `stored_path` in DB, and lists files not tracked by jDocs. User can then choose to import or ignore them.
+
+---
+
+### Session 10 — Search Results Redesign & File Details Enhancements
 **Status:** Planned | **Date:** TBD
 
-**Deliverable:** Standalone .exe (Windows) and .app (macOS).
+**Deliverable:** Cleaner search results layout (table/list style), "Open file location" from file details, edit tags/comments on existing files.
+
+**Planned scope:**
+- **Search results redesign:** Replace current card-per-result layout with a unified table or list view showing filename, project/folder, tags, and file type in aligned columns. Each row still clickable to open file details. Discuss layout options (QTableWidget vs styled list) at session start.
+- **Open file location:** Add button in FileDetailPanel to open the file's containing folder in Finder/Explorer (using `QDesktopServices` or `subprocess`).
+- **Edit function:** Add editable fields in FileDetailPanel for tags and comments. Add DB methods to update/remove tags and comments on existing files. Save button to persist changes.
+
+---
+
+### Session 11 — UI/UX Polish
+**Status:** Planned | **Date:** TBD
+
+**Deliverable:** Visual and interaction improvements based on backlog items.
+
+**Planned scope (candidates — will finalize at session start):**
+- Tag badge/chip UI: visual chips with "x" to remove instead of comma-separated text input
+- File list in sidebar: show files when a folder is selected in the tree
+- Open file from app: double-click to open in default application
+- Dark theme support: respect system theme instead of hardcoded light backgrounds
+- Other quick wins from backlog
+
+---
+
+### Session 12 — PyInstaller Packaging & Distribution
+**Status:** Planned | **Date:** TBD
+
+**Deliverable:** Standalone .exe (Windows) and .app (macOS) that run without Python installed.
+
+---
+
+### Session 13 — PDF Support & Future Enhancements
+**Status:** Planned | **Date:** TBD
+
+**Deliverable:** PDF text extraction, plus any remaining backlog items.
 
 ---
 
@@ -298,4 +357,4 @@ erDiagram
 ```
 
 ## Up Next
-**Session 08** — Polish, error handling & testing (edge cases, comprehensive test coverage).
+**Session 09** — Multi-file batch upload & folder scanning.

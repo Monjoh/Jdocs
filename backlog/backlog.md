@@ -3,22 +3,28 @@
 Ideas, tech debt, considerations, and unscheduled items.
 
 ## Future Features
-- [ ] PDF support (python-pdfplumber or PyMuPDF)
+- [ ] PDF support (python-pdfplumber or PyMuPDF) — *scheduled: Session 13*
 - [ ] Duplicate file detection
-- [ ] Bulk import/organize existing folders
+- [x] Bulk import/organize existing folders — *scheduled: Session 09 (folder scanning)*
 - [ ] Export metadata/tags to CSV
 - [ ] File preview panel
 - [ ] "Create new project" / "Create new folder" actions from sidebar (right-click or button)
+- [x] Multi-file batch upload — *scheduled: Session 09*
+- [x] Open file location from file details — *scheduled: Session 10*
+- [x] Edit tags/comments on existing files — *scheduled: Session 10*
+- [x] Search results UI redesign (table/list layout) — *scheduled: Session 10*
 
 ## UX Improvements
-- [ ] Tag badge/chip UI: type a tag + press Enter to add it as a visual badge below the input field, with "x" to remove — better than plain comma-separated text
-- [ ] Left pane split layout: upper section for project/folder tree, lower section shows file list when a folder is selected
-- [ ] Open file from left pane: double-click a file to open it in Finder/Explorer or open directly — offer both options (context menu or choice dialog)
+- [x] Tag badge/chip UI — *scheduled: Session 11*
+- [x] Left pane split layout: file list when folder selected — *scheduled: Session 11*
+- [x] Open file from app — *scheduled: Session 11*
+- [ ] Collapsible sidebar: toggle button to collapse/expand the left pane so users can focus on main content (sidebar currently has no interactivity beyond viewing)
+- [ ] Sidebar folder click → show files: clicking a folder in the sidebar shows its files in the main panel (same layout as search results), making the sidebar interactive and useful for browsing
 - [ ] Subfolder depth: support creating sub-subfolders, possibly auto-organize into subfolders based on tags
 - [ ] Categories removed (Session 05) — tags alone are sufficient. If categories are needed later, re-add as a special "pinned tag" or separate concept
 
 ## Tech Debt
-- [ ] Dark theme support: sidebar and drop zone have hardcoded light backgrounds — should respect system theme
+- [x] Dark theme support — *scheduled: Session 11*
 
 ## Smart Features
 - [ ] Keyword extraction from file content: analyze extracted text to surface relevant keywords (not just row/cell counts) — useful for understanding what a file is about

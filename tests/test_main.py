@@ -6,11 +6,12 @@ These are extracted to utils.py so they can be tested without PyQt5.
 
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from utils import format_size, format_metadata, sanitize_name
+from utils import format_size, format_metadata, sanitize_name, scan_untracked_files
 
 
 class TestFormatSize(unittest.TestCase):
@@ -163,6 +164,69 @@ class TestSanitizeName(unittest.TestCase):
     def test_unicode_preserved(self):
         """Non-ASCII characters should be kept (they're valid on both platforms)."""
         self.assertEqual(sanitize_name("Projets été"), "Projets été")
+
+
+class TestScanUntrackedFiles(unittest.TestCase):
+    """Test the folder scanning utility function."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir)
+
+    def _create_file(self, relative_path, content="test"):
+        """Helper to create a file inside tmpdir."""
+        full = os.path.join(self.tmpdir, relative_path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as f:
+            f.write(content)
+        return full
+
+    def test_empty_folder_returns_empty(self):
+        result = scan_untracked_files(self.tmpdir, set())
+        self.assertEqual(result, [])
+
+    def test_finds_untracked_files(self):
+        path_a = self._create_file("Project/Reports/a.xlsx")
+        path_b = self._create_file("Project/Reports/b.docx")
+        result = scan_untracked_files(self.tmpdir, set())
+        names = {f["name"] for f in result}
+        self.assertEqual(names, {"a.xlsx", "b.docx"})
+
+    def test_excludes_tracked_files(self):
+        path_a = self._create_file("Project/Reports/a.xlsx")
+        path_b = self._create_file("Project/Reports/b.docx")
+        tracked = {path_a}
+        result = scan_untracked_files(self.tmpdir, tracked)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["name"], "b.docx")
+
+    def test_skips_jdocs_directory(self):
+        self._create_file(".jdocs/jdocs.db", "sqlite data")
+        self._create_file("Project/file.txt")
+        result = scan_untracked_files(self.tmpdir, set())
+        names = {f["name"] for f in result}
+        self.assertNotIn("jdocs.db", names)
+        self.assertIn("file.txt", names)
+
+    def test_includes_relative_path(self):
+        self._create_file("Work/Reports/q1.xlsx")
+        result = scan_untracked_files(self.tmpdir, set())
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["relative_path"], os.path.join("Work", "Reports", "q1.xlsx"))
+
+    def test_includes_size(self):
+        self._create_file("file.txt", "hello world")
+        result = scan_untracked_files(self.tmpdir, set())
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["size_bytes"], 11)
+
+    def test_all_tracked_returns_empty(self):
+        path = self._create_file("tracked.txt")
+        result = scan_untracked_files(self.tmpdir, {path})
+        self.assertEqual(result, [])
 
 
 if __name__ == "__main__":

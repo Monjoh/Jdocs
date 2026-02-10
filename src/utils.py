@@ -1,5 +1,7 @@
 """Pure utility functions for jDocs — no Qt dependencies, safe to import anywhere."""
 
+from pathlib import Path
+
 # Characters invalid in Windows file/folder names
 _INVALID_PATH_CHARS = '<>:"/\\|?*'
 
@@ -88,3 +90,34 @@ def format_metadata(result: dict) -> str:
         lines.append(note)
 
     return "\n".join(lines) if lines else "No metadata extracted."
+
+
+def scan_untracked_files(root_folder: str | Path, tracked_paths: set[str]) -> list[dict]:
+    """Walk root_folder and return files not present in tracked_paths.
+
+    Skips the .jdocs directory. Returns a list of dicts with keys:
+        - name: filename
+        - path: absolute path string
+        - relative_path: path relative to root_folder
+        - size_bytes: file size
+    """
+    root = Path(root_folder)
+    untracked = []
+    for file_path in root.rglob("*"):
+        if not file_path.is_file():
+            continue
+        # Skip the .jdocs internal directory
+        try:
+            file_path.relative_to(root / ".jdocs")
+            continue
+        except ValueError:
+            pass
+        abs_path = str(file_path)
+        if abs_path not in tracked_paths:
+            untracked.append({
+                "name": file_path.name,
+                "path": abs_path,
+                "relative_path": str(file_path.relative_to(root)),
+                "size_bytes": file_path.stat().st_size,
+            })
+    return untracked
