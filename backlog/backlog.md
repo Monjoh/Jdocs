@@ -26,7 +26,7 @@ Ideas, tech debt, considerations, and unscheduled items.
 - [ ] Could leverage TF-IDF or simple frequency analysis on extracted text to rank keywords
 
 ## Design Topics
-- [ ] Root folder definition: first-launch setup to select the root folder where all projects live
+- [x] Root folder definition: first-launch setup to select the root folder where all projects live *(done in Session 07)*
 - [ ] File resilience: handle cases where root folder or files inside it are moved/renamed/deleted outside the app (avoid broken references, detect changes, decide whether to re-process or prompt user)
 
 ## Considerations
