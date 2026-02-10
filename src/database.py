@@ -152,13 +152,19 @@ class Database:
     def add_file(self, original_name: str, stored_path: str, folder_id: int,
                  size_bytes: Optional[int] = None, file_type: Optional[str] = None,
                  metadata_text: Optional[str] = None) -> int:
-        cur = self.conn.execute(
-            """INSERT INTO files (original_name, stored_path, folder_id, size_bytes, file_type, metadata_text)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (original_name, stored_path, folder_id, size_bytes, file_type, metadata_text),
-        )
-        self.conn.commit()
-        return cur.lastrowid
+        try:
+            cur = self.conn.execute(
+                """INSERT INTO files (original_name, stored_path, folder_id, size_bytes, file_type, metadata_text)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (original_name, stored_path, folder_id, size_bytes, file_type, metadata_text),
+            )
+            self.conn.commit()
+            return cur.lastrowid
+        except sqlite3.IntegrityError as e:
+            self.conn.rollback()
+            if "stored_path" in str(e).lower() or "unique" in str(e).lower():
+                raise ValueError(f"A file already exists at this path: {stored_path}") from e
+            raise
 
     def get_file(self, file_id: int) -> Optional[dict]:
         row = self.conn.execute(

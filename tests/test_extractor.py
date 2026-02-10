@@ -190,7 +190,7 @@ class TestCodeExtraction:
 
 
 class TestEdgeCases:
-    """Edge cases: missing files and unsupported file types should not crash."""
+    """Edge cases: missing files, directories, unsupported extensions, corrupt files."""
 
     def test_nonexistent_file(self):
         """A path that doesn't exist should return an error message, not raise an exception."""
@@ -200,7 +200,6 @@ class TestEdgeCases:
 
     def test_unsupported_extension(self):
         """An unsupported extension should return a result with a note, not crash."""
-        # Create a temporary file with an unknown extension
         tmp = SAMPLES / "temp_test.xyz"
         tmp.write_text("some content")
         try:
@@ -208,5 +207,74 @@ class TestEdgeCases:
             assert result["error"] is None
             assert "Unsupported" in result["metadata"].get("note", "")
             assert result["text"] == ""
+        finally:
+            tmp.unlink()
+
+    def test_directory_path_returns_error(self):
+        """Passing a directory path (not a file) should return a clear error, not crash."""
+        result = extract(SAMPLES)
+        assert result["error"] is not None
+        assert "Not a file" in result["error"]
+
+    def test_corrupt_docx_returns_error(self):
+        """A file with .docx extension but invalid content should return error, not crash."""
+        tmp = SAMPLES / "temp_corrupt.docx"
+        tmp.write_text("this is not a real docx file")
+        try:
+            result = extract(tmp)
+            assert result["error"] is not None
+        finally:
+            tmp.unlink()
+
+    def test_corrupt_xlsx_returns_error(self):
+        """A file with .xlsx extension but invalid content should return error, not crash."""
+        tmp = SAMPLES / "temp_corrupt.xlsx"
+        tmp.write_text("not a zip file")
+        try:
+            result = extract(tmp)
+            assert result["error"] is not None
+        finally:
+            tmp.unlink()
+
+    def test_corrupt_pptx_returns_error(self):
+        """A file with .pptx extension but invalid content should return error, not crash."""
+        tmp = SAMPLES / "temp_corrupt.pptx"
+        tmp.write_text("not valid pptx")
+        try:
+            result = extract(tmp)
+            assert result["error"] is not None
+        finally:
+            tmp.unlink()
+
+    def test_corrupt_office_file_user_friendly_message(self):
+        """Corrupt Office files should show password-protected/corrupted message, not BadZipFile."""
+        tmp = SAMPLES / "temp_corrupt2.docx"
+        tmp.write_text("fake content")
+        try:
+            result = extract(tmp)
+            assert "password-protected or corrupted" in result["error"]
+        finally:
+            tmp.unlink()
+
+    def test_empty_text_file(self):
+        """An empty code file should extract without error, with 0 lines/chars."""
+        tmp = SAMPLES / "temp_empty.py"
+        tmp.write_text("")
+        try:
+            result = extract(tmp)
+            assert result["error"] is None
+            assert result["text"] == ""
+            assert result["metadata"]["line_count"] == 0
+            assert result["metadata"]["char_count"] == 0
+        finally:
+            tmp.unlink()
+
+    def test_empty_csv_file(self):
+        """An empty CSV should extract without error."""
+        tmp = SAMPLES / "temp_empty.csv"
+        tmp.write_text("")
+        try:
+            result = extract(tmp)
+            assert result["error"] is None
         finally:
             tmp.unlink()

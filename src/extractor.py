@@ -12,6 +12,7 @@ Extracts text content and metadata from supported file types:
 import csv
 import io
 from pathlib import Path
+from zipfile import BadZipFile
 
 from docx import Document as DocxDocument
 from openpyxl import load_workbook
@@ -19,6 +20,9 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 from pptx import Presentation
 
+
+# Maximum file size for text extraction (10 MB)
+MAX_TEXT_SIZE = 10 * 1024 * 1024
 
 # File extensions recognized as plain-text code/config files
 CODE_EXTENSIONS = {
@@ -45,6 +49,9 @@ def extract(file_path: str | Path) -> dict:
     if not path.exists():
         return _error_result(path, "File not found")
 
+    if not path.is_file():
+        return _error_result(path, "Not a file (may be a directory)")
+
     ext = path.suffix.lower()
     base = {
         "file_name": path.name,
@@ -70,6 +77,8 @@ def extract(file_path: str | Path) -> dict:
             _extract_code(path, base)
         else:
             base["metadata"]["note"] = "Unsupported file type — no extraction performed"
+    except BadZipFile:
+        base["error"] = "This file appears to be password-protected or corrupted."
     except Exception as e:
         base["error"] = f"Extraction failed: {e}"
 
@@ -181,7 +190,13 @@ def _extract_image(path: Path, result: dict):
 def _extract_csv(path: Path, result: dict):
     """Extract column names and first 100 rows from a CSV file."""
     max_preview_rows = 100
-    raw = path.read_text(encoding="utf-8", errors="replace")
+    size = path.stat().st_size
+    truncated = size > MAX_TEXT_SIZE
+    if truncated:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            raw = f.read(MAX_TEXT_SIZE)
+    else:
+        raw = path.read_text(encoding="utf-8", errors="replace")
     reader = csv.reader(io.StringIO(raw))
 
     rows = []
@@ -208,9 +223,18 @@ def _extract_csv(path: Path, result: dict):
 
 
 def _extract_code(path: Path, result: dict):
-    text = path.read_text(encoding="utf-8", errors="replace")
+    size = path.stat().st_size
+    truncated = size > MAX_TEXT_SIZE
+    if truncated:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read(MAX_TEXT_SIZE)
+    else:
+        text = path.read_text(encoding="utf-8", errors="replace")
     result["text"] = text
     result["metadata"] = {
         "line_count": text.count("\n") + 1 if text else 0,
         "char_count": len(text),
     }
+    if truncated:
+        result["metadata"]["truncated"] = True
+        result["metadata"]["note"] = f"File truncated to first 10 MB (full size: {size:,} bytes)"

@@ -253,6 +253,63 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(self.db.get_file_tags(file_id), [])
         self.assertEqual(self.db.get_file_comments(file_id), [])
 
+    # --- Duplicate stored_path ---
+
+    def test_duplicate_stored_path_raises_value_error(self):
+        """Adding two files with the same stored_path should raise ValueError."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        self.db.add_file("a.xlsx", "/same/path.xlsx", fid)
+        with self.assertRaises(ValueError) as ctx:
+            self.db.add_file("b.xlsx", "/same/path.xlsx", fid)
+        self.assertIn("already exists", str(ctx.exception))
+
+    # --- Search edge cases ---
+
+    def test_search_with_sql_special_chars(self):
+        """Search with SQL wildcards (%, _) should not cause unexpected matches or errors."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        self.db.add_file("100%_report.xlsx", "/path/100pct.xlsx", fid,
+                         metadata_text="100% complete")
+        # Searching for literal "%" should match the file, not act as wildcard
+        results = self.db.search_files("100%")
+        self.assertTrue(len(results) >= 1)
+
+    def test_search_with_single_quote(self):
+        """Search with apostrophe should not cause SQL injection."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        self.db.add_file("john's_file.docx", "/path/johns.docx", fid)
+        results = self.db.search_files("john's")
+        self.assertEqual(len(results), 1)
+
+    def test_search_multi_word_relevance_order(self):
+        """Multi-word query should rank files matching more words higher."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        # File matching 1 word
+        self.db.add_file("budget.xlsx", "/path/budget.xlsx", fid,
+                         metadata_text="annual budget data")
+        # File matching 2 words
+        self.db.add_file("annual_report.xlsx", "/path/annual_report.xlsx", fid,
+                         metadata_text="annual budget report")
+        results = self.db.search_files("annual budget")
+        # Both should match, but annual_report matches both words
+        self.assertTrue(len(results) >= 2)
+        # The one matching more words should come first
+        self.assertEqual(results[0]["original_name"], "annual_report.xlsx")
+
+    def test_search_by_comment(self):
+        """search_files() should match against file comment text."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        file_id = self.db.add_file("data.csv", "/path/data2.csv", fid)
+        self.db.add_comment(file_id, "needs review by manager")
+        results = self.db.search_files("manager")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["original_name"], "data.csv")
+
 
 if __name__ == "__main__":
     unittest.main()

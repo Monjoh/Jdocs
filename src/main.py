@@ -15,7 +15,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
-    QMenuBar,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -29,6 +28,7 @@ from PyQt5.QtWidgets import (
 from database import Database
 from extractor import extract
 from settings import derive_db_path, is_configured, load_settings, save_settings
+from utils import format_metadata, format_size, sanitize_name
 
 
 # -- Styles ------------------------------------------------------------------
@@ -292,7 +292,7 @@ class PostDropPanel(QFrame):
         self.cancel_btn.clicked.connect(self.cancel_clicked.emit)
         button_layout.addWidget(self.cancel_btn)
 
-        self.approve_btn = QPushButton("Approve && Move")
+        self.approve_btn = QPushButton("Approve && Copy")
         self.approve_btn.setStyleSheet(
             "padding: 8px 20px; background-color: #4a90d9; color: white; "
             "border: none; border-radius: 4px; font-weight: bold;"
@@ -315,11 +315,11 @@ class PostDropPanel(QFrame):
 
         # -- File header --
         self.file_name_label.setText(result["file_name"])
-        size_str = _format_size(result["size_bytes"])
+        size_str = format_size(result["size_bytes"])
         self.file_info_label.setText(f'{result["file_type"]}  |  {size_str}')
 
         # -- Metadata preview (type-specific) --
-        self.metadata_label.setText(_format_metadata(result))
+        self.metadata_label.setText(format_metadata(result))
 
         # -- Text preview --
         text = result.get("text", "")
@@ -533,7 +533,7 @@ class FileDetailPanel(QFrame):
     def populate(self, file_record: dict, comments: list[dict]):
         """Fill the detail panel with file data from the database."""
         self.file_name_label.setText(file_record["original_name"])
-        size_str = _format_size(file_record.get("size_bytes", 0) or 0)
+        size_str = format_size(file_record.get("size_bytes", 0) or 0)
         self.file_info_label.setText(f'{file_record.get("file_type", "")}  |  {size_str}')
 
         project = file_record.get("project_name", "?")
@@ -586,13 +586,41 @@ class Sidebar(QFrame):
         )
         layout.addWidget(self.tree)
 
+        # Hint shown when no projects exist yet
+        self.hint_label = QLabel("Create a project with the\n'+' button to get started")
+        self.hint_label.setAlignment(Qt.AlignCenter)
+        self.hint_label.setStyleSheet("color: #999; font-size: 11px; padding: 12px;")
+        self.hint_label.hide()
+        layout.addWidget(self.hint_label)
+
+        layout.addStretch()
+
+        # Root folder path indicator
+        self.root_label = QLabel("")
+        self.root_label.setStyleSheet("color: #777; font-size: 10px; padding: 4px;")
+        self.root_label.setWordWrap(True)
+        layout.addWidget(self.root_label)
+
+    def set_root_folder_label(self, root_path: str):
+        """Show the active root folder path at the bottom of the sidebar."""
+        display = root_path
+        if len(display) > 28:
+            display = "..." + display[-25:]
+        self.root_label.setText(display)
+        self.root_label.setToolTip(root_path)
+
     def load_from_database(self, db: Database):
         """Populate the sidebar tree from the database."""
         self.tree.clear()
-        for project in db.list_projects():
-            project_item = QTreeWidgetItem(self.tree, [project["name"]])
-            for folder in db.list_folders(project["id"]):
-                QTreeWidgetItem(project_item, [folder["name"]])
+        projects = db.list_projects()
+        if not projects:
+            self.hint_label.show()
+        else:
+            self.hint_label.hide()
+            for project in projects:
+                project_item = QTreeWidgetItem(self.tree, [project["name"]])
+                for folder in db.list_folders(project["id"]):
+                    QTreeWidgetItem(project_item, [folder["name"]])
         self.tree.expandAll()
 
 
@@ -639,6 +667,7 @@ class MainWindow(QMainWindow):
         content_layout = QHBoxLayout()
 
         self.sidebar = Sidebar()
+        self.sidebar.set_root_folder_label(str(self.root_folder))
         self.sidebar.load_from_database(self.db)
         content_layout.addWidget(self.sidebar)
 
@@ -721,8 +750,9 @@ class MainWindow(QMainWindow):
         """Called when a file is dropped — extract metadata and show the post-drop panel."""
         result = extract(file_path)
 
-        # If extraction returned an error, show it in the status label and stay on DropZone
+        # If extraction returned an error, show a warning dialog and update status label
         if result["error"]:
+            QMessageBox.warning(self, "Extraction Error", result["error"])
             self.file_info.setText(f'Error: {result["error"]}')
             self.file_info.setStyleSheet("color: #cc3333; padding: 20px;")
             return
@@ -791,7 +821,10 @@ class MainWindow(QMainWindow):
         """Prompt user for a new project name, create it in DB, refresh dropdown."""
         name, ok = QInputDialog.getText(self, "New Project", "Project name:")
         if ok and name.strip():
-            name = name.strip()
+            name = sanitize_name(name)
+            if not name:
+                QMessageBox.warning(self, "Invalid Name", "Project name contains only invalid characters.")
+                return
             try:
                 self.db.create_project(name)
             except Exception as e:
@@ -813,7 +846,10 @@ class MainWindow(QMainWindow):
             return
         name, ok = QInputDialog.getText(self, "New Folder", "Folder name:")
         if ok and name.strip():
-            name = name.strip()
+            name = sanitize_name(name)
+            if not name:
+                QMessageBox.warning(self, "Invalid Name", "Folder name contains only invalid characters.")
+                return
             try:
                 self.db.create_folder(project_id, name)
             except Exception as e:
@@ -843,13 +879,23 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Missing Folder", "Please select a folder before approving.")
             return
 
+        # Validate source file still exists
+        source = Path(panel.source_path)
+        if not source.exists():
+            QMessageBox.warning(
+                self,
+                "File Not Found",
+                "The original file no longer exists at its original location.\n"
+                "It may have been moved or deleted.",
+            )
+            return
+
         # Build target path: root/project_name/folder_name/filename
         project = self.db.get_project(project_id)
         folder = self.db.get_folder(folder_id)
         target_dir = self.root_folder / project["name"] / folder["name"]
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        source = Path(panel.source_path)
         target = target_dir / source.name
 
         # Handle duplicate filenames
@@ -868,24 +914,35 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Copy Failed", f"Could not copy file:\n{e}")
             return
 
-        # Register file in database with the new stored_path
-        file_id = self.db.add_file(
-            original_name=result["file_name"],
-            stored_path=str(target),
-            folder_id=folder_id,
-            size_bytes=result["size_bytes"],
-            file_type=result["file_type"],
-            metadata_text=result.get("text", ""),
-        )
+        # Register file in database — if this fails, clean up the copied file
+        try:
+            file_id = self.db.add_file(
+                original_name=result["file_name"],
+                stored_path=str(target),
+                folder_id=folder_id,
+                size_bytes=result["size_bytes"],
+                file_type=result["file_type"],
+                metadata_text=result.get("text", ""),
+            )
 
-        # Save tags
-        for tag in panel.get_tags():
-            self.db.add_tag_to_file(file_id, tag)
+            # Save tags
+            for tag in panel.get_tags():
+                self.db.add_tag_to_file(file_id, tag)
 
-        # Save comment
-        comment = panel.get_comment()
-        if comment:
-            self.db.add_comment(file_id, comment)
+            # Save comment
+            comment = panel.get_comment()
+            if comment:
+                self.db.add_comment(file_id, comment)
+        except Exception as e:
+            # Clean up the copied file since DB save failed
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+            QMessageBox.warning(
+                self, "Save Failed", f"Could not save to database:\n{e}\n\nThe copied file has been removed."
+            )
+            return
 
         # Refresh sidebar and return to DropZone
         self.sidebar.load_from_database(self.db)
@@ -893,81 +950,6 @@ class MainWindow(QMainWindow):
         self.file_info.setText(f'Saved: {result["file_name"]}')
         self.file_info.setStyleSheet("color: #2e7d32; padding: 20px;")
 
-
-# -- Helpers ------------------------------------------------------------------
-
-
-def _format_size(size_bytes: int) -> str:
-    """Format a byte count into a human-readable string."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    elif size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    else:
-        return f"{size_bytes / (1024 * 1024):.1f} MB"
-
-
-def _format_metadata(result: dict) -> str:
-    """Build a human-readable string from type-specific metadata."""
-    meta = result.get("metadata", {})
-    file_type = result.get("file_type", "")
-    lines = []
-
-    if file_type == ".docx":
-        if meta.get("author"):
-            lines.append(f'Author: {meta["author"]}')
-        if meta.get("title"):
-            lines.append(f'Title: {meta["title"]}')
-        lines.append(f'Paragraphs: {meta.get("paragraph_count", "?")}')
-
-    elif file_type == ".xlsx":
-        lines.append(f'Sheets: {meta.get("sheet_count", "?")}')
-        for sheet in meta.get("sheets", []):
-            lines.append(f'  - {sheet["name"]}: {sheet["row_count"]} rows')
-
-    elif file_type == ".pptx":
-        if meta.get("author"):
-            lines.append(f'Author: {meta["author"]}')
-        if meta.get("title"):
-            lines.append(f'Title: {meta["title"]}')
-        lines.append(f'Slides: {meta.get("slide_count", "?")}')
-
-    elif file_type in {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff"}:
-        w = meta.get("width", "?")
-        h = meta.get("height", "?")
-        lines.append(f'Dimensions: {w} x {h}')
-        if meta.get("format"):
-            lines.append(f'Format: {meta["format"]}')
-        if meta.get("mode"):
-            lines.append(f'Color mode: {meta["mode"]}')
-        exif = meta.get("exif", {})
-        if exif:
-            lines.append("EXIF:")
-            for key, val in list(exif.items())[:5]:
-                lines.append(f'  {key}: {val}')
-
-    elif file_type == ".csv":
-        lines.append(f'Rows: {meta.get("total_rows", "?")}')
-        lines.append(f'Columns: {meta.get("column_count", "?")}')
-        columns = meta.get("columns", [])
-        if columns:
-            # Show up to 10 column names to avoid overflow
-            shown = columns[:10]
-            col_str = ", ".join(shown)
-            if len(columns) > 10:
-                col_str += f", ... (+{len(columns) - 10} more)"
-            lines.append(f'Column names: {col_str}')
-        lines.append(f'Preview: first {meta.get("preview_rows", "?")} rows')
-
-    elif file_type in {".py", ".js", ".ts", ".java", ".c", ".cpp", ".md", ".txt", ".json"}:
-        lines.append(f'Lines: {meta.get("line_count", "?")}')
-        lines.append(f'Characters: {meta.get("char_count", "?")}')
-
-    else:
-        note = meta.get("note", "No metadata available for this file type.")
-        lines.append(note)
-
-    return "\n".join(lines) if lines else "No metadata extracted."
 
 
 def main():
