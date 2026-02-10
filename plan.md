@@ -126,9 +126,21 @@
 ---
 
 ### Session 07 — First Launch Setup & Root Folder Config
-**Status:** Planned | **Date:** TBD
+**Status:** Done | **Date:** 2026-02-10
 
-**Deliverable:** First-run wizard to select root folder, settings persistence.
+**Deliverable:** First-run wizard, persistent database, physical file copy on approve.
+
+**What was built:**
+- `src/settings.py` — config persistence module with cross-platform JSON storage (`%LOCALAPPDATA%` on Windows, `~/.config` on macOS/Linux), load/save with defaults fallback and corrupt file recovery
+- `src/main.py` — `FirstLaunchDialog` (folder picker wizard blocking app until root is set), persistent `Database(<root>/.jdocs/jdocs.db)` replacing `:memory:`, removed `_seed_sample_data()`, file copy on approve with `shutil.copy2` and `_1`/`_2` duplicate handling, Settings menu with "Change Root Folder..." option
+- `tests/test_settings.py` — 13 tests (platform paths, roundtrip, corrupt recovery, is_configured)
+
+**Key decisions:**
+- Copy, not move — originals stay in place, user never loses source files
+- DB inside root folder (`.jdocs/jdocs.db`) — travels with data if root is moved
+- Config in OS user data dir — app always finds it regardless of root location
+- Change root folder = restart required (simpler than hot-swapping DB connections)
+- Duplicate filenames get `_1`, `_2` suffixes instead of overwriting
 
 ---
 
@@ -286,4 +298,4 @@ erDiagram
 ```
 
 ## Up Next
-**Session 07** — First launch setup & root folder config (first-run wizard, settings persistence).
+**Session 08** — Polish, error handling & testing (edge cases, comprehensive test coverage).

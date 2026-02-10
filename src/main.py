@@ -1,10 +1,13 @@
+import shutil
 import sys
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAction,
     QApplication,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -12,6 +15,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenuBar,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -24,6 +28,7 @@ from PyQt5.QtWidgets import (
 
 from database import Database
 from extractor import extract
+from settings import derive_db_path, is_configured, load_settings, save_settings
 
 
 # -- Styles ------------------------------------------------------------------
@@ -34,6 +39,71 @@ DROPZONE_NORMAL = (
 DROPZONE_HOVER = (
     "DropZone { background-color: #e3f0ff; border: 2px dashed #4a90d9; border-radius: 8px; }"
 )
+
+
+# -- First Launch Dialog -------------------------------------------------------
+
+
+class FirstLaunchDialog(QDialog):
+    """Dialog shown on first launch to select the root folder."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Welcome to jDocs")
+        self.setMinimumWidth(450)
+        self.selected_folder = ""
+
+        layout = QVBoxLayout(self)
+
+        welcome = QLabel("Welcome to jDocs!")
+        welcome.setStyleSheet("font-size: 18px; font-weight: bold;")
+        layout.addWidget(welcome)
+
+        explanation = QLabel(
+            "Choose a root folder where jDocs will organize your files.\n\n"
+            "All projects and folders will be created inside this directory.\n"
+            "A hidden .jdocs folder will store the database."
+        )
+        explanation.setWordWrap(True)
+        explanation.setStyleSheet("font-size: 13px; color: #444; margin: 8px 0;")
+        layout.addWidget(explanation)
+
+        # Folder picker row
+        folder_row = QHBoxLayout()
+        self.folder_label = QLabel("No folder selected")
+        self.folder_label.setStyleSheet(
+            "padding: 8px; background-color: #f5f5f5; border: 1px solid #ddd; border-radius: 4px;"
+        )
+        folder_row.addWidget(self.folder_label, stretch=1)
+
+        browse_btn = QPushButton("Browse...")
+        browse_btn.setStyleSheet("padding: 8px 16px;")
+        browse_btn.clicked.connect(self._browse)
+        folder_row.addWidget(browse_btn)
+        layout.addLayout(folder_row)
+
+        layout.addSpacing(12)
+
+        # Confirm button
+        self.confirm_btn = QPushButton("Set Root Folder && Start")
+        self.confirm_btn.setEnabled(False)
+        self.confirm_btn.setStyleSheet(
+            "padding: 10px 24px; background-color: #4a90d9; color: white; "
+            "border: none; border-radius: 4px; font-weight: bold; font-size: 14px;"
+        )
+        self.confirm_btn.clicked.connect(self._confirm)
+        layout.addWidget(self.confirm_btn, alignment=Qt.AlignCenter)
+
+    def _browse(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Root Folder")
+        if folder:
+            self.selected_folder = folder
+            self.folder_label.setText(folder)
+            self.confirm_btn.setEnabled(True)
+
+    def _confirm(self):
+        if self.selected_folder:
+            self.accept()
 
 
 # -- Widgets ------------------------------------------------------------------
@@ -535,9 +605,23 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(700, 500)
         self.resize(750, 550)
 
-        # -- Database (in-memory for now, Session 07 will add persistent path) --
-        self.db = Database(":memory:")
-        self._seed_sample_data()
+        # -- Settings & Database --
+        self.settings = load_settings()
+        if not is_configured(self.settings):
+            if not self._run_first_launch():
+                sys.exit(0)
+
+        self.root_folder = Path(self.settings["root_folder"])
+        db_path = self.settings["db_path"]
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        self.db = Database(db_path)
+
+        # -- Menu bar --
+        menu_bar = self.menuBar()
+        settings_menu = menu_bar.addMenu("Settings")
+        change_root_action = QAction("Change Root Folder...", self)
+        change_root_action.triggered.connect(self._on_change_root_folder)
+        settings_menu.addAction(change_root_action)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -595,15 +679,43 @@ class MainWindow(QMainWindow):
         self.search_results_panel.back_clicked.connect(self._on_clear_search)
         self.file_detail_panel.back_clicked.connect(self._on_back_to_results)
 
-    def _seed_sample_data(self):
-        """Add sample projects and folders so dropdowns have data to show."""
-        p1 = self.db.create_project("Work Documents")
-        self.db.create_folder(p1, "Reports")
-        self.db.create_folder(p1, "Presentations")
+    def _run_first_launch(self) -> bool:
+        """Show first-launch dialog. Returns True if user selected a folder."""
+        dialog = FirstLaunchDialog()
+        if dialog.exec_() != QDialog.Accepted:
+            return False
+        root = dialog.selected_folder
+        db_path = derive_db_path(root)
+        self.settings["root_folder"] = root
+        self.settings["db_path"] = db_path
+        # Create .jdocs directory
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        save_settings(self.settings)
+        return True
 
-        p2 = self.db.create_project("Personal")
-        self.db.create_folder(p2, "Photos")
-        self.db.create_folder(p2, "Code Snippets")
+    def _on_change_root_folder(self):
+        """Allow user to change the root folder via a dialog."""
+        folder = QFileDialog.getExistingDirectory(self, "Select New Root Folder")
+        if not folder:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Change Root Folder",
+            f"Change root folder to:\n{folder}\n\n"
+            "This will create a new database in the new location.\n"
+            "Your current data will remain in the old location.\n\nProceed?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        db_path = derive_db_path(folder)
+        self.settings["root_folder"] = folder
+        self.settings["db_path"] = db_path
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        save_settings(self.settings)
+        QMessageBox.information(
+            self, "Restart Required", "Please restart jDocs to use the new root folder."
+        )
 
     def _on_file_dropped(self, file_path: str):
         """Called when a file is dropped — extract metadata and show the post-drop panel."""
@@ -717,7 +829,7 @@ class MainWindow(QMainWindow):
             self.sidebar.load_from_database(self.db)
 
     def _on_approve(self):
-        """Save the file record, tags, category, and comment to the database."""
+        """Save the file record, copy file to root folder, and persist to database."""
         panel = self.post_drop_panel
         result = panel.extraction_result
 
@@ -731,10 +843,35 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Missing Folder", "Please select a folder before approving.")
             return
 
-        # Register file in database
+        # Build target path: root/project_name/folder_name/filename
+        project = self.db.get_project(project_id)
+        folder = self.db.get_folder(folder_id)
+        target_dir = self.root_folder / project["name"] / folder["name"]
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        source = Path(panel.source_path)
+        target = target_dir / source.name
+
+        # Handle duplicate filenames
+        if target.exists():
+            stem = source.stem
+            suffix = source.suffix
+            counter = 1
+            while target.exists():
+                target = target_dir / f"{stem}_{counter}{suffix}"
+                counter += 1
+
+        # Copy file (preserves metadata, original stays in place)
+        try:
+            shutil.copy2(str(source), str(target))
+        except OSError as e:
+            QMessageBox.warning(self, "Copy Failed", f"Could not copy file:\n{e}")
+            return
+
+        # Register file in database with the new stored_path
         file_id = self.db.add_file(
             original_name=result["file_name"],
-            stored_path=panel.source_path,
+            stored_path=str(target),
             folder_id=folder_id,
             size_bytes=result["size_bytes"],
             file_type=result["file_type"],

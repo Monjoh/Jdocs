@@ -25,8 +25,25 @@ Accumulated patterns and preferences from working on this project. Updated as we
 - Dedicated extractors per file type instead of one-size-fits-all — allows type-specific optimizations (e.g. CSV row capping)
 - Pinning action buttons outside scroll areas so they're always accessible
 
+## Configuration & Persistence Patterns
+- **Separate config location from data location**: config in OS user data dir (always findable), DB inside root folder (travels with data)
+  - Windows config: `%LOCALAPPDATA%\jdocs\config.json`
+  - macOS/Linux config: `~/.config/jdocs/config.json`
+  - DB: `<root_folder>/.jdocs/jdocs.db`
+- **Always merge loaded config with defaults**: ensures forward compatibility when new config keys are added in future versions (`merged = _defaults(); merged.update(loaded_data)`)
+- **Graceful recovery from corrupt config**: catch `json.JSONDecodeError` and return defaults instead of crashing
+- **`is_configured()` should check directory exists, not just non-empty string**: handles edge case where user deletes root folder after setup
+- **Use `shutil.copy2` over `shutil.copy`**: preserves file timestamps and permissions, important for document management
+- **Duplicate filename handling**: append `_1`, `_2` suffix rather than overwriting or prompting (simple, predictable, no user interruption)
+
+## Environment Gotchas
+- **pytest is not installed in Termux** — use `python -m unittest tests.test_module -v` instead. Tests use `sys.path.insert(0, ...)` to find src modules, which works with both runners.
+- **`platform.system()` returns `"Windows"`, `"Darwin"`, `"Linux"`** — use this for OS detection, not `sys.platform` (which returns `"win32"`, `"darwin"`, `"linux"`)
+
 ## What to Avoid
 - Always check ALL type hints when fixing compatibility, not just the first one found
 - Keep production builds lightweight: pytest and other dev tools must NOT be bundled in PyInstaller — only runtime deps (PyQt5, python-docx, openpyxl, python-pptx, Pillow)
 - Don't load entire large files into memory for preview — cap rows (CSV: 100 rows, Excel: 100 rows per sheet)
 - Don't put action buttons inside scroll areas — users shouldn't have to scroll past long content to find Cancel/Approve
+- **Don't hot-swap database connections at runtime** — too many widgets depend on the DB reference. Prefer restart for config changes that affect the DB path.
+- **Never delete user's source files on approve** — copy, don't move. If the organized root folder is lost, user still has originals.
