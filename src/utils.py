@@ -112,6 +112,9 @@ def scan_untracked_files(root_folder: str | Path, tracked_paths: set[str]) -> li
             continue
         except ValueError:
             pass
+        # Skip OS metadata files
+        if file_path.name in {".DS_Store", "Thumbs.db", "desktop.ini"}:
+            continue
         abs_path = str(file_path)
         if abs_path not in tracked_paths:
             untracked.append({
