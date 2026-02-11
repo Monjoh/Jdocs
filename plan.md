@@ -2,7 +2,7 @@
 
 ## Current State
 **Phase:** Development
-**Status:** Session 08 complete
+**Status:** Session 09 complete
 
 ## Session Roadmap
 
@@ -166,14 +166,23 @@
 
 ---
 
-### Session 09 — Multi-file Batch Upload & Folder Scanning
-**Status:** Next | **Date:** TBD
+### Session 09 — Multi-file Batch Upload & Folder Scanning ✓
+**Status:** Done | **Date:** 2026-02-10 / 2026-02-11
 
-**Deliverable:** Batch file input (drop/browse multiple files, all assigned to same project/folder/tags/comment) with configurable file count limit; folder scan to detect untracked files in the root folder.
+**Deliverable:** Batch file input (drop/browse multiple files, all assigned to same project/folder/tags/comment) with 10-file limit; folder scan to detect untracked files in the root folder.
 
-**Planned scope:**
-- **Batch upload:** Modify DropZone to accept multiple files, process all through extractor, show combined post-drop panel with shared project/folder/tags/comment fields, approve copies all files at once. Cap at ~10 files per batch to keep processing responsive.
-- **Folder scanning:** New "Scan" action that walks the root folder tree, compares against `stored_path` in DB, and lists files not tracked by jDocs. User can then choose to import or ignore them.
+**What was built:**
+- `src/main.py` — DropZone accepts multiple files (`files_dropped(list)` signal, `getOpenFileNames`), `MAX_BATCH_FILES = 10` with warning on overflow. PostDropPanel batch mode shows "X files selected" with file list, hides metadata preview. Approve loop processes all files with per-file error handling and cleanup. "Scan for Untracked Files..." menu item with QMessageBox results.
+- `src/database.py` — `get_all_stored_paths()` returns set of all tracked paths
+- `src/utils.py` — `scan_untracked_files()` walks root folder, skips `.jdocs/`, returns untracked files with name/path/size
+- `src/extractor.py` — Fixed corrupt file detection for python-docx 1.2.0 ("Package not found" error)
+- Tests: 116 total passing (33 database + 28 extractor + 38 utils + 13 settings + 4 new for scanning)
+
+**Key decisions:**
+- Batch approve continues on individual file failure, reports all errors at end
+- Folder scan is informational only (no import action — future enhancement)
+- Extraction errors during batch: skip failed files with warning, process the rest
+- Venv (`.venv/`) used for isolated testing with Python 3.10
 
 ---
 
@@ -357,4 +366,4 @@ erDiagram
 ```
 
 ## Up Next
-**Session 09** — Multi-file batch upload & folder scanning.
+**Session 10** — Search results redesign & file details enhancements.

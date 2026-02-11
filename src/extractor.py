@@ -80,7 +80,11 @@ def extract(file_path: str | Path) -> dict:
     except BadZipFile:
         base["error"] = "This file appears to be password-protected or corrupted."
     except Exception as e:
-        base["error"] = f"Extraction failed: {e}"
+        msg = str(e).lower()
+        if "package not found" in msg or "not a zip file" in msg:
+            base["error"] = "This file appears to be password-protected or corrupted."
+        else:
+            base["error"] = f"Extraction failed: {e}"
 
     return base
 

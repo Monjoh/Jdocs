@@ -37,8 +37,11 @@ Accumulated patterns and preferences from working on this project. Updated as we
 - **Duplicate filename handling**: append `_1`, `_2` suffix rather than overwriting or prompting (simple, predictable, no user interruption)
 
 ## Environment Gotchas
+- **macOS: use `python3` not `python`** — `python` points to system Python 2.7/3.7, `python3` points to 3.10.4. Use `.venv/bin/python3` or `python3 -m pytest` for testing.
+- **Use a venv for testing** — created `.venv/` at project root to isolate dependencies (already in `.gitignore`). Activate with `.venv/bin/python3` or source `.venv/bin/activate`.
 - **pytest is not installed in Termux** — use `python -m unittest tests.test_module -v` instead. Tests use `sys.path.insert(0, ...)` to find src modules, which works with both runners.
 - **`platform.system()` returns `"Windows"`, `"Darwin"`, `"Linux"`** — use this for OS detection, not `sys.platform` (which returns `"win32"`, `"darwin"`, `"linux"`)
+- **python-docx 1.2.0 changed error behavior** — corrupt `.docx` files now raise `Exception("Package not found")` instead of `BadZipFile`. The extractor handles both cases.
 
 ## What to Avoid
 - Always check ALL type hints when fixing compatibility, not just the first one found
