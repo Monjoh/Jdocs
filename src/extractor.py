@@ -21,8 +21,11 @@ from PIL.ExifTags import TAGS
 from pptx import Presentation
 
 
-# Maximum file size for text extraction (10 MB)
-MAX_TEXT_SIZE = 10 * 1024 * 1024
+# Maximum file read for code/text files (50 KB — ~1000 lines)
+MAX_TEXT_SIZE = 50 * 1024
+
+# Maximum characters stored in text field (safety net across all types)
+MAX_TEXT_PREVIEW = 5000
 
 # File extensions recognized as plain-text code/config files
 CODE_EXTENSIONS = {
@@ -86,6 +89,10 @@ def extract(file_path: str | Path) -> dict:
         else:
             base["error"] = f"Extraction failed: {e}"
 
+    # Global safety net: truncate text to MAX_TEXT_PREVIEW
+    if len(base["text"]) > MAX_TEXT_PREVIEW:
+        base["text"] = base["text"][:MAX_TEXT_PREVIEW]
+
     return base
 
 
@@ -101,15 +108,22 @@ def _error_result(path: Path, message: str) -> dict:
 
 
 def _extract_docx(path: Path, result: dict):
+    max_paragraphs = 50
     doc = DocxDocument(str(path))
-    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+    paragraphs = []
+    total = 0
+    for p in doc.paragraphs:
+        if p.text.strip():
+            total += 1
+            if len(paragraphs) < max_paragraphs:
+                paragraphs.append(p.text)
     result["text"] = "\n".join(paragraphs)
 
     props = doc.core_properties
     result["metadata"] = {
         "author": props.author or "",
         "title": props.title or "",
-        "paragraph_count": len(paragraphs),
+        "paragraph_count": total,
     }
 
 
@@ -140,10 +154,13 @@ def _extract_xlsx(path: Path, result: dict):
 
 
 def _extract_pptx(path: Path, result: dict):
+    max_slides = 20
     prs = Presentation(str(path))
     slide_texts = []
 
-    for slide in prs.slides:
+    for i, slide in enumerate(prs.slides):
+        if i >= max_slides:
+            break
         parts = []
         for shape in slide.shapes:
             if shape.has_text_frame:
@@ -241,4 +258,4 @@ def _extract_code(path: Path, result: dict):
     }
     if truncated:
         result["metadata"]["truncated"] = True
-        result["metadata"]["note"] = f"File truncated to first 10 MB (full size: {size:,} bytes)"
+        result["metadata"]["note"] = f"File truncated to first 50 KB (full size: {size:,} bytes)"

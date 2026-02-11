@@ -2,7 +2,7 @@
 
 ## Current State
 **Phase:** Development
-**Status:** Session 09 complete
+**Status:** Session 10 complete
 
 ## Session Roadmap
 
@@ -186,15 +186,23 @@
 
 ---
 
-### Session 10 — Search Results Redesign & File Details Enhancements
-**Status:** Planned | **Date:** TBD
+### Session 10 — Search Results Redesign & File Details Enhancements ✓
+**Status:** Done | **Date:** 2026-02-11
 
-**Deliverable:** Cleaner search results layout (table/list style), "Open file location" from file details, edit tags/comments on existing files.
+**Deliverable:** Cleaner search results layout (QListWidget with styled rows), "Open file location" from file details, edit tags/comments on existing files.
 
-**Planned scope:**
-- **Search results redesign:** Replace current card-per-result layout with a unified table or list view showing filename, project/folder, tags, and file type in aligned columns. Each row still clickable to open file details. Discuss layout options (QTableWidget vs styled list) at session start.
-- **Open file location:** Add button in FileDetailPanel to open the file's containing folder in Finder/Explorer (using `QDesktopServices` or `subprocess`).
-- **Edit function:** Add editable fields in FileDetailPanel for tags and comments. Add DB methods to update/remove tags and comments on existing files. Save button to persist changes.
+**What was built:**
+- `src/main.py` — SearchResultsPanel rewritten with QListWidget + setItemWidget() (colored file type badges, bold filename, project/folder, tags, file size per row). FileDetailPanel now has editable tags (QLineEdit), comments with delete buttons, new comment input, "Save Changes" button, and "Open File Location" button using QDesktopServices. New `TagSuggestionBar` widget shows clickable tag chips below tag inputs in both PostDropPanel and FileDetailPanel.
+- `src/database.py` — `get_popular_tags(project_id, limit)` returns most-used tags by frequency. Bug fix in `create_tag`/`create_category`: `lastrowid` → `rowcount` for correct duplicate detection.
+- Signal-based save: FileDetailPanel emits `save_clicked`/`delete_comment_clicked`, MainWindow handles DB operations and refreshes the panel.
+- Tests: 120 total (4 new for popular tags)
+
+**Key decisions:**
+- QListWidget over QTableWidget (simpler for variable-width row content)
+- FileDetailPanel stays decoupled from DB (signals pattern, matching PostDropPanel)
+- "Add" comment triggers full save for simpler UX
+- Badge colors hardcoded per extension
+- Tag suggestions: frequency-ranked, project-scoped when available, chips dim when tag already entered
 
 ---
 
@@ -366,4 +374,4 @@ erDiagram
 ```
 
 ## Up Next
-**Session 10** — Search results redesign & file details enhancements.
+**Session 11** — UI/UX polish.

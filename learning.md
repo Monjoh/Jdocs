@@ -43,10 +43,13 @@ Accumulated patterns and preferences from working on this project. Updated as we
 - **`platform.system()` returns `"Windows"`, `"Darwin"`, `"Linux"`** — use this for OS detection, not `sys.platform` (which returns `"win32"`, `"darwin"`, `"linux"`)
 - **python-docx 1.2.0 changed error behavior** — corrupt `.docx` files now raise `Exception("Package not found")` instead of `BadZipFile`. The extractor handles both cases.
 
+## SQLite Gotchas
+- **`cur.lastrowid` is unreliable after `INSERT OR IGNORE`**: When the INSERT is ignored (duplicate), `lastrowid` doesn't reset to 0 — it retains the rowid from the most recent *successful* INSERT across any table. Use `cur.rowcount == 0` to detect ignored inserts instead.
+
 ## What to Avoid
 - Always check ALL type hints when fixing compatibility, not just the first one found
 - Keep production builds lightweight: pytest and other dev tools must NOT be bundled in PyInstaller — only runtime deps (PyQt5, python-docx, openpyxl, python-pptx, Pillow)
-- Don't load entire large files into memory for preview — cap rows (CSV: 100 rows, Excel: 100 rows per sheet)
+- Don't load entire large files into memory for preview — cap rows (CSV: 100 rows, Excel: 100 rows per sheet), paragraphs (docx: 50), slides (pptx: 20), code/txt (50 KB). Global safety net: `MAX_TEXT_PREVIEW = 5000` chars. Tags and comments are the primary search mechanism, not full-text indexing.
 - Don't put action buttons inside scroll areas — users shouldn't have to scroll past long content to find Cancel/Approve
 - **Don't hot-swap database connections at runtime** — too many widgets depend on the DB reference. Prefer restart for config changes that affect the DB path.
 - **Never delete user's source files on approve** — copy, don't move. If the organized root folder is lost, user still has originals.

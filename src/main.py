@@ -2,7 +2,10 @@ import shutil
 import sys
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, pyqtSignal
+import os
+
+from PyQt5.QtCore import Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -14,10 +17,13 @@ from PyQt5.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QTreeWidget,
     QTreeWidgetItem,
@@ -256,6 +262,9 @@ class PostDropPanel(QFrame):
         self.tags_input.setPlaceholderText("Enter tags separated by commas (e.g. finance, Q1, report)")
         self.content_layout.addWidget(self.tags_input)
 
+        self.tag_suggestions = TagSuggestionBar(self.tags_input)
+        self.content_layout.addWidget(self.tag_suggestions)
+
         comment_label = QLabel("Comment:")
         comment_label.setStyleSheet("font-weight: bold; margin-top: 4px;")
         self.content_layout.addWidget(comment_label)
@@ -402,8 +411,96 @@ class PostDropPanel(QFrame):
             self.folder_combo.addItem(f["name"], f["id"])
 
 
+class TagSuggestionBar(QWidget):
+    """Horizontal bar of clickable tag chips that append to a QLineEdit."""
+
+    def __init__(self, tags_input: QLineEdit):
+        super().__init__()
+        self._tags_input = tags_input
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(0, 4, 0, 0)
+        self._layout.setSpacing(6)
+        self._layout.addStretch()
+
+        # Re-check dimming when user edits the input manually
+        self._tags_input.textChanged.connect(self._update_chip_states)
+
+    def set_suggestions(self, tags: list[str]):
+        """Replace all chips with a new set of suggested tags."""
+        # Clear existing chips
+        while self._layout.count():
+            child = self._layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        for tag in tags:
+            chip = QPushButton(tag)
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.setFixedHeight(24)
+            chip.clicked.connect(lambda checked, t=tag: self._on_chip_clicked(t))
+            self._layout.addWidget(chip)
+
+        self._layout.addStretch()
+        self._update_chip_states()
+
+    def _current_tags(self) -> set[str]:
+        """Parse the current tags from the linked input field (lowercased for comparison)."""
+        raw = self._tags_input.text().strip()
+        if not raw:
+            return set()
+        return {t.strip().lower() for t in raw.split(",") if t.strip()}
+
+    def _on_chip_clicked(self, tag: str):
+        """Append the tag to the input field if not already present."""
+        current = self._current_tags()
+        if tag.lower() in current:
+            return
+        text = self._tags_input.text().strip()
+        if text and not text.endswith(","):
+            text += ", "
+        elif text.endswith(","):
+            text += " "
+        text += tag
+        self._tags_input.setText(text)
+
+    def _update_chip_states(self):
+        """Dim chips that are already in the input field."""
+        current = self._current_tags()
+        for i in range(self._layout.count()):
+            item = self._layout.itemAt(i)
+            widget = item.widget()
+            if not isinstance(widget, QPushButton):
+                continue
+            tag = widget.text()
+            already_used = tag.lower() in current
+            if already_used:
+                widget.setStyleSheet(
+                    "QPushButton { background-color: #e0e0e0; color: #aaa; "
+                    "border: 1px solid #ccc; border-radius: 10px; padding: 2px 10px; "
+                    "font-size: 11px; }"
+                )
+            else:
+                widget.setStyleSheet(
+                    "QPushButton { background-color: #e8f0fe; color: #1a73e8; "
+                    "border: 1px solid #b0cffe; border-radius: 10px; padding: 2px 10px; "
+                    "font-size: 11px; }"
+                    "QPushButton:hover { background-color: #d2e3fc; }"
+                )
+
+
+BADGE_COLORS = {
+    ".xlsx": "#217346", ".xls": "#217346",
+    ".docx": "#2b579a", ".doc": "#2b579a",
+    ".pptx": "#d24726", ".ppt": "#d24726",
+    ".pdf": "#e44d26",
+    ".png": "#6d4c9f", ".jpg": "#6d4c9f", ".jpeg": "#6d4c9f",
+    ".csv": "#1a73e8",
+    ".py": "#3572a5", ".js": "#f1e05a", ".ts": "#3178c6",
+}
+
+
 class SearchResultsPanel(QFrame):
-    """Panel displaying search results as clickable cards."""
+    """Panel displaying search results as a styled list."""
 
     result_clicked = pyqtSignal(dict)  # emits the file record dict
     back_clicked = pyqtSignal()
@@ -427,56 +524,79 @@ class SearchResultsPanel(QFrame):
         header_bar.addWidget(back_btn)
         outer.addLayout(header_bar)
 
-        # Scrollable results area
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        self.results_widget = QWidget()
-        self.results_layout = QVBoxLayout(self.results_widget)
-        self.results_layout.setAlignment(Qt.AlignTop)
-        scroll.setWidget(self.results_widget)
-        outer.addWidget(scroll, stretch=1)
+        # List widget for results
+        self.list_widget = QListWidget()
+        self.list_widget.setAlternatingRowColors(True)
+        self.list_widget.setStyleSheet(
+            "QListWidget { border: none; }"
+            "QListWidget::item { border-bottom: 1px solid #eee; padding: 2px; }"
+            "QListWidget::item:hover { background-color: #e8f0fe; }"
+            "QListWidget::item:selected { background-color: #d2e3fc; }"
+        )
+        self.list_widget.setCursor(Qt.PointingHandCursor)
+        self.list_widget.itemClicked.connect(self._on_item_clicked)
+        outer.addWidget(self.list_widget, stretch=1)
+
+        # No-results label (hidden by default)
+        self.no_results_label = QLabel()
+        self.no_results_label.setAlignment(Qt.AlignCenter)
+        self.no_results_label.setStyleSheet("color: #888; font-size: 14px; padding: 40px;")
+        self.no_results_label.hide()
+        outer.addWidget(self.no_results_label)
 
     def show_results(self, results: list[dict], query: str):
-        """Display search results as clickable cards."""
-        # Clear previous results
-        while self.results_layout.count():
-            child = self.results_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        """Display search results in the list widget."""
+        self.list_widget.clear()
 
         count = len(results)
         self.header_label.setText(f'Search Results — {count} match{"es" if count != 1 else ""} for "{query}"')
 
         if not results:
-            no_results = QLabel(f'No results found for "{query}"')
-            no_results.setAlignment(Qt.AlignCenter)
-            no_results.setStyleSheet("color: #888; font-size: 14px; padding: 40px;")
-            self.results_layout.addWidget(no_results)
+            self.list_widget.hide()
+            self.no_results_label.setText(f'No results found for "{query}"')
+            self.no_results_label.show()
             return
 
+        self.no_results_label.hide()
+        self.list_widget.show()
+
         for file_record in results:
-            card = self._make_result_card(file_record)
-            self.results_layout.addWidget(card)
+            item = QListWidgetItem(self.list_widget)
+            widget = self._make_result_widget(file_record)
+            size = widget.sizeHint()
+            size.setHeight(max(size.height(), 40))
+            item.setSizeHint(size)
+            item.setData(Qt.UserRole, file_record)
+            self.list_widget.setItemWidget(item, widget)
 
-    def _make_result_card(self, file_record: dict) -> QFrame:
-        """Build a compact single-line clickable card for a search result."""
-        card = QFrame()
-        card.setFrameStyle(QFrame.StyledPanel)
-        card.setStyleSheet(
-            "QFrame { background-color: #fafafa; border: 1px solid #ddd; "
-            "border-radius: 4px; padding: 4px 8px; margin: 1px; }"
-            "QFrame:hover { background-color: #e8f0fe; border-color: #4a90d9; }"
+    def _on_item_clicked(self, item: QListWidgetItem):
+        """Emit the file record when a list item is clicked."""
+        file_record = item.data(Qt.UserRole)
+        if file_record:
+            self.result_clicked.emit(file_record)
+
+    def _make_result_widget(self, file_record: dict) -> QWidget:
+        """Build a compact row widget for a search result."""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(10)
+
+        # File type badge
+        ext = file_record.get("file_type", "")
+        color = BADGE_COLORS.get(ext, "#888")
+        badge = QLabel(ext)
+        badge.setFixedWidth(48)
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setStyleSheet(
+            f"background-color: {color}; color: white; font-size: 10px; "
+            "font-weight: bold; border-radius: 3px; padding: 2px 4px;"
         )
-        card.setCursor(Qt.PointingHandCursor)
-
-        layout = QHBoxLayout(card)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(8)
+        layout.addWidget(badge)
 
         # Filename (bold)
         name_label = QLabel(f'<b>{file_record["original_name"]}</b>')
-        name_label.setStyleSheet("font-size: 12px;")
+        name_label.setStyleSheet("font-size: 13px;")
         layout.addWidget(name_label)
 
         # Project / Folder
@@ -494,20 +614,28 @@ class SearchResultsPanel(QFrame):
 
         layout.addStretch()
 
-        # Click handler — emit the file record
-        card.mousePressEvent = lambda event, r=file_record: self.result_clicked.emit(r)
+        # File size (right-aligned)
+        size = file_record.get("size_bytes", 0) or 0
+        size_label = QLabel(format_size(size))
+        size_label.setStyleSheet("color: #999; font-size: 11px;")
+        layout.addWidget(size_label)
 
-        return card
+        return widget
 
 
 class FileDetailPanel(QFrame):
-    """Read-only panel showing full details of a file from search results."""
+    """Panel showing full details of a file with editable tags and comments."""
 
     back_clicked = pyqtSignal()
+    save_clicked = pyqtSignal(int, list, str)  # file_id, new_tags_list, new_comment_text
+    delete_comment_clicked = pyqtSignal(int)  # comment_id
 
     def __init__(self):
         super().__init__()
         self.setFrameStyle(QFrame.StyledPanel)
+        self._file_id = None
+        self._stored_path = None
+        self._original_tags = []
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -532,18 +660,54 @@ class FileDetailPanel(QFrame):
         self.location_label.setStyleSheet("font-size: 12px; margin-top: 4px;")
         self.content_layout.addWidget(self.location_label)
 
-        self.tags_label = QLabel()
-        self.tags_label.setStyleSheet("color: #4a90d9; font-size: 12px; margin-top: 4px;")
-        self.content_layout.addWidget(self.tags_label)
+        # Open File Location button
+        self.open_location_btn = QPushButton("Open File Location")
+        self.open_location_btn.setStyleSheet("padding: 6px 14px; margin-top: 4px;")
+        self.open_location_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.open_location_btn.clicked.connect(self._on_open_location)
+        self.content_layout.addWidget(self.open_location_btn)
 
-        self.comments_label = QLabel()
-        self.comments_label.setWordWrap(True)
-        self.comments_label.setStyleSheet("font-size: 12px; color: #555; margin-top: 4px;")
-        self.content_layout.addWidget(self.comments_label)
+        # -- Editable Tags --
+        self._add_separator()
+        tags_header = QLabel("Tags:")
+        tags_header.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        self.content_layout.addWidget(tags_header)
+
+        self.tags_input = QLineEdit()
+        self.tags_input.setPlaceholderText("Enter tags separated by commas")
+        self.content_layout.addWidget(self.tags_input)
+
+        self.tag_suggestions = TagSuggestionBar(self.tags_input)
+        self.content_layout.addWidget(self.tag_suggestions)
+
+        # -- Editable Comments --
+        self._add_separator()
+        comments_header = QLabel("Comments:")
+        comments_header.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        self.content_layout.addWidget(comments_header)
+
+        # Container for existing comments (each with delete button)
+        self.comments_container = QWidget()
+        self.comments_layout = QVBoxLayout(self.comments_container)
+        self.comments_layout.setContentsMargins(0, 0, 0, 0)
+        self.comments_layout.setSpacing(4)
+        self.content_layout.addWidget(self.comments_container)
+
+        # New comment input row
+        comment_row = QHBoxLayout()
+        self.new_comment_input = QLineEdit()
+        self.new_comment_input.setPlaceholderText("Add a new comment...")
+        comment_row.addWidget(self.new_comment_input, stretch=1)
+        add_comment_btn = QPushButton("Add")
+        add_comment_btn.setStyleSheet("padding: 6px 14px;")
+        add_comment_btn.clicked.connect(self._on_add_comment)
+        comment_row.addWidget(add_comment_btn)
+        self.content_layout.addLayout(comment_row)
 
         # Metadata text preview
+        self._add_separator()
         self.meta_header = QLabel("Stored Text Content")
-        self.meta_header.setStyleSheet("font-weight: bold; font-size: 13px; margin-top: 12px;")
+        self.meta_header.setStyleSheet("font-weight: bold; font-size: 13px; margin-top: 8px;")
         self.content_layout.addWidget(self.meta_header)
 
         self.meta_preview = QLabel()
@@ -557,20 +721,40 @@ class FileDetailPanel(QFrame):
         scroll.setWidget(content)
         outer.addWidget(scroll, stretch=1)
 
-        # Back button pinned at bottom
+        # Bottom button bar
         button_bar = QFrame()
         button_bar.setStyleSheet("border-top: 1px solid #ddd; padding: 8px;")
         button_layout = QHBoxLayout(button_bar)
         button_layout.setContentsMargins(8, 8, 8, 8)
+
         back_btn = QPushButton("Back to Results")
         back_btn.setStyleSheet("padding: 8px 20px;")
         back_btn.clicked.connect(self.back_clicked.emit)
         button_layout.addWidget(back_btn)
+
         button_layout.addStretch()
+
+        save_btn = QPushButton("Save Changes")
+        save_btn.setStyleSheet(
+            "padding: 8px 20px; background-color: #4a90d9; color: white; "
+            "border: none; border-radius: 4px; font-weight: bold;"
+        )
+        save_btn.clicked.connect(self._on_save)
+        button_layout.addWidget(save_btn)
+
         outer.addWidget(button_bar)
+
+    def _add_separator(self):
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("color: #ddd;")
+        self.content_layout.addWidget(line)
 
     def populate(self, file_record: dict, comments: list[dict]):
         """Fill the detail panel with file data from the database."""
+        self._file_id = file_record["id"]
+        self._stored_path = file_record.get("stored_path", "")
+
         self.file_name_label.setText(file_record["original_name"])
         size_str = format_size(file_record.get("size_bytes", 0) or 0)
         self.file_info_label.setText(f'{file_record.get("file_type", "")}  |  {size_str}')
@@ -579,20 +763,18 @@ class FileDetailPanel(QFrame):
         folder = file_record.get("folder_name", "?")
         self.location_label.setText(f'Location: {project} / {folder}')
 
+        # Tags — editable
         tags = file_record.get("tags", [])
-        if tags:
-            self.tags_label.setText("Tags: " + ", ".join(tags))
-            self.tags_label.show()
-        else:
-            self.tags_label.hide()
+        self._original_tags = list(tags)
+        self.tags_input.setText(", ".join(tags))
 
-        if comments:
-            comment_lines = [f'- {c["comment"]}' for c in comments]
-            self.comments_label.setText("Comments:\n" + "\n".join(comment_lines))
-            self.comments_label.show()
-        else:
-            self.comments_label.hide()
+        # Comments — existing with delete buttons
+        self._populate_comments(comments)
 
+        # New comment input — clear
+        self.new_comment_input.clear()
+
+        # Metadata text preview
         meta_text = file_record.get("metadata_text", "")
         if meta_text and meta_text.strip():
             preview = meta_text[:500] + "..." if len(meta_text) > 500 else meta_text
@@ -603,6 +785,67 @@ class FileDetailPanel(QFrame):
             self.meta_header.hide()
             self.meta_preview.hide()
 
+    def _populate_comments(self, comments: list[dict]):
+        """Build the list of existing comments with delete buttons."""
+        # Clear existing comment widgets
+        while self.comments_layout.count():
+            child = self.comments_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        for c in comments:
+            row = QHBoxLayout()
+            label = QLabel(f'- {c["comment"]}')
+            label.setWordWrap(True)
+            label.setStyleSheet("font-size: 12px; color: #555;")
+            row.addWidget(label, stretch=1)
+
+            del_btn = QPushButton("x")
+            del_btn.setFixedSize(22, 22)
+            del_btn.setStyleSheet(
+                "color: #cc3333; font-weight: bold; border: 1px solid #ddd; border-radius: 3px;"
+            )
+            del_btn.setToolTip("Delete this comment")
+            comment_id = c["id"]
+            del_btn.clicked.connect(lambda checked, cid=comment_id: self.delete_comment_clicked.emit(cid))
+            row.addWidget(del_btn)
+
+            container = QWidget()
+            container.setLayout(row)
+            self.comments_layout.addWidget(container)
+
+        if not comments:
+            hint = QLabel("No comments yet.")
+            hint.setStyleSheet("color: #999; font-size: 11px;")
+            self.comments_layout.addWidget(hint)
+
+    def _on_open_location(self):
+        """Open the file's containing folder in the system file browser."""
+        if not self._stored_path:
+            return
+        path = Path(self._stored_path)
+        if not path.exists():
+            QMessageBox.warning(
+                self, "File Not Found",
+                f"The file no longer exists at:\n{self._stored_path}"
+            )
+            return
+        parent_dir = str(path.parent)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(parent_dir))
+
+    def _on_save(self):
+        """Emit save signal with current tags and new comment."""
+        if self._file_id is None:
+            return
+        raw = self.tags_input.text().strip()
+        new_tags = [t.strip() for t in raw.split(",") if t.strip()] if raw else []
+        new_comment = self.new_comment_input.text().strip()
+        self.save_clicked.emit(self._file_id, new_tags, new_comment)
+
+    def _on_add_comment(self):
+        """Convenience: trigger save to add the new comment immediately."""
+        self._on_save()
+
 
 class Sidebar(QFrame):
     """Sidebar with expandable/collapsible project & folder tree."""
@@ -611,24 +854,43 @@ class Sidebar(QFrame):
         super().__init__()
         self.setFrameStyle(QFrame.StyledPanel)
         self.setFixedWidth(220)
-        self.setStyleSheet("background-color: #e8e8e8; border-radius: 4px;")
+
+        # Use system palette for theme-aware colors (light & dark mode)
+        palette = self.palette()
+        bg = palette.color(palette.Window).name()
+        fg = palette.color(palette.WindowText).name()
+        base_bg = palette.color(palette.Base).name()
+        # Derive a muted color by blending foreground toward background
+        fg_c = palette.color(palette.WindowText)
+        bg_c = palette.color(palette.Window)
+        r = (fg_c.red() + bg_c.red()) // 2
+        g = (fg_c.green() + bg_c.green()) // 2
+        b = (fg_c.blue() + bg_c.blue()) // 2
+        muted = f"#{r:02x}{g:02x}{b:02x}"
+
+        self.setStyleSheet(
+            f"background-color: {bg}; color: {fg}; border-radius: 4px;"
+        )
 
         layout = QVBoxLayout(self)
         header = QLabel("Projects")
-        header.setStyleSheet("font-weight: bold; font-size: 14px;")
+        header.setStyleSheet(f"font-weight: bold; font-size: 14px; color: {fg};")
         layout.addWidget(header)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setStyleSheet(
-            "QTreeWidget { background-color: #e8e8e8; border: none; font-size: 13px; }"
+            f"QTreeWidget {{ background-color: {base_bg}; color: {fg};"
+            f" border: none; font-size: 13px; }}"
+            f" QTreeWidget::item:selected {{ background-color: {palette.color(palette.Highlight).name()};"
+            f" color: {palette.color(palette.HighlightedText).name()}; }}"
         )
         layout.addWidget(self.tree)
 
         # Hint shown when no projects exist yet
         self.hint_label = QLabel("Create a project with the\n'+' button to get started")
         self.hint_label.setAlignment(Qt.AlignCenter)
-        self.hint_label.setStyleSheet("color: #999; font-size: 11px; padding: 12px;")
+        self.hint_label.setStyleSheet(f"color: {muted}; font-size: 11px; padding: 12px;")
         self.hint_label.hide()
         layout.addWidget(self.hint_label)
 
@@ -636,7 +898,7 @@ class Sidebar(QFrame):
 
         # Root folder path indicator
         self.root_label = QLabel("")
-        self.root_label.setStyleSheet("color: #777; font-size: 10px; padding: 4px;")
+        self.root_label.setStyleSheet(f"color: {muted}; font-size: 10px; padding: 4px;")
         self.root_label.setWordWrap(True)
         layout.addWidget(self.root_label)
 
@@ -750,6 +1012,8 @@ class MainWindow(QMainWindow):
         self.search_results_panel.result_clicked.connect(self._on_result_clicked)
         self.search_results_panel.back_clicked.connect(self._on_clear_search)
         self.file_detail_panel.back_clicked.connect(self._on_back_to_results)
+        self.file_detail_panel.save_clicked.connect(self._on_file_save)
+        self.file_detail_panel.delete_comment_clicked.connect(self._on_delete_comment)
 
     def _run_first_launch(self) -> bool:
         """Show first-launch dialog. Returns True if user selected a folder."""
@@ -855,6 +1119,11 @@ class MainWindow(QMainWindow):
         # Populate project dropdown from database
         self.post_drop_panel.set_projects(self.db.list_projects())
 
+        # Load tag suggestions (global since no project selected yet)
+        self.post_drop_panel.tag_suggestions.set_suggestions(
+            self.db.get_popular_tags(limit=10)
+        )
+
         # Switch to post-drop panel
         self.stack.setCurrentIndex(1)
         if len(results) == 1:
@@ -864,13 +1133,16 @@ class MainWindow(QMainWindow):
         self.file_info.setStyleSheet("color: #4a90d9; padding: 20px;")
 
     def _on_project_changed(self, index: int):
-        """When project selection changes, update the folder dropdown."""
+        """When project selection changes, update the folder dropdown and tag suggestions."""
         project_id = self.post_drop_panel.project_combo.currentData()
         if project_id is not None:
             folders = self.db.list_folders(project_id)
             self.post_drop_panel.set_folders(folders)
+            suggestions = self.db.get_popular_tags(project_id=project_id, limit=10)
         else:
             self.post_drop_panel.set_folders([])
+            suggestions = self.db.get_popular_tags(limit=10)
+        self.post_drop_panel.tag_suggestions.set_suggestions(suggestions)
 
     def _on_cancel(self):
         """Return to the DropZone view."""
@@ -900,8 +1172,7 @@ class MainWindow(QMainWindow):
 
     def _on_result_clicked(self, file_record: dict):
         """Show file detail panel for a clicked search result."""
-        comments = self.db.get_file_comments(file_record["id"])
-        self.file_detail_panel.populate(file_record, comments)
+        self._refresh_file_detail(file_record["id"])
         self.stack.setCurrentIndex(3)
         self.file_info.setText(f'Viewing: {file_record["original_name"]}')
         self.file_info.setStyleSheet("color: #4a90d9; padding: 20px;")
@@ -910,6 +1181,59 @@ class MainWindow(QMainWindow):
         """Return to search results from file detail view."""
         self.stack.setCurrentIndex(2)
         self.file_info.setStyleSheet("color: #4a90d9; padding: 20px;")
+
+    def _on_file_save(self, file_id: int, new_tags: list, new_comment: str):
+        """Handle save from FileDetailPanel — diff tags, add comment, refresh."""
+        original_tags = set(self.file_detail_panel._original_tags)
+        current_tags = set(new_tags)
+
+        # Remove tags that were deleted
+        for tag in original_tags - current_tags:
+            self.db.remove_tag_from_file(file_id, tag)
+
+        # Add tags that are new
+        for tag in current_tags - original_tags:
+            self.db.add_tag_to_file(file_id, tag)
+
+        # Add new comment if provided
+        if new_comment:
+            self.db.add_comment(file_id, new_comment)
+
+        # Refresh the detail panel with updated data
+        self._refresh_file_detail(file_id)
+
+        self.file_info.setText("Changes saved")
+        self.file_info.setStyleSheet("color: #2e7d32; padding: 20px;")
+
+    def _on_delete_comment(self, comment_id: int):
+        """Delete a comment and refresh the detail panel."""
+        self.db.delete_comment(comment_id)
+        file_id = self.file_detail_panel._file_id
+        if file_id is not None:
+            self._refresh_file_detail(file_id)
+
+    def _refresh_file_detail(self, file_id: int):
+        """Reload file data from DB and re-populate the detail panel."""
+        file_record = self.db.get_file(file_id)
+        if not file_record:
+            return
+        # Enrich with project/folder names and tags (like search_files does)
+        folder = self.db.get_folder(file_record["folder_id"])
+        if folder:
+            project = self.db.get_project(folder["project_id"])
+            file_record["folder_name"] = folder["name"]
+            file_record["project_name"] = project["name"] if project else "?"
+        else:
+            file_record["folder_name"] = "?"
+            file_record["project_name"] = "?"
+        file_record["tags"] = self.db.get_file_tags(file_id)
+        comments = self.db.get_file_comments(file_id)
+        self.file_detail_panel.populate(file_record, comments)
+        # Refresh tag suggestions for this file's project
+        project_id = folder["project_id"] if folder else None
+        self.file_detail_panel.tag_suggestions.set_suggestions(
+            self.db.get_popular_tags(project_id=project_id, limit=10)
+        )
 
     def _on_new_project(self):
         """Prompt user for a new project name, create it in DB, refresh dropdown."""

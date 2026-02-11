@@ -207,7 +207,7 @@ class Database:
             "INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,)
         )
         self.conn.commit()
-        if cur.lastrowid == 0:
+        if cur.rowcount == 0:
             row = self.conn.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
             return row["id"]
         return cur.lastrowid
@@ -237,6 +237,37 @@ class Database:
         ).fetchall()
         return [r["name"] for r in rows]
 
+    def get_popular_tags(self, project_id: Optional[int] = None, limit: int = 10) -> List[str]:
+        """Return the most-used tags sorted by usage count (descending).
+
+        If project_id is given, only count tags on files belonging to that project.
+        Otherwise count across all files.
+        """
+        if project_id is not None:
+            rows = self.conn.execute(
+                """SELECT t.name, COUNT(*) AS cnt
+                   FROM tags t
+                   JOIN file_tags ft ON t.id = ft.tag_id
+                   JOIN files f ON ft.file_id = f.id
+                   JOIN folders fo ON f.folder_id = fo.id
+                   WHERE fo.project_id = ?
+                   GROUP BY t.id
+                   ORDER BY cnt DESC, t.name ASC
+                   LIMIT ?""",
+                (project_id, limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """SELECT t.name, COUNT(*) AS cnt
+                   FROM tags t
+                   JOIN file_tags ft ON t.id = ft.tag_id
+                   GROUP BY t.id
+                   ORDER BY cnt DESC, t.name ASC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [r["name"] for r in rows]
+
     # --- Categories ---
 
     def list_categories(self) -> List[str]:
@@ -250,7 +281,7 @@ class Database:
             "INSERT OR IGNORE INTO categories (name) VALUES (?)", (name,)
         )
         self.conn.commit()
-        if cur.lastrowid == 0:
+        if cur.rowcount == 0:
             row = self.conn.execute("SELECT id FROM categories WHERE name = ?", (name,)).fetchone()
             return row["id"]
         return cur.lastrowid
@@ -353,7 +384,9 @@ class Database:
         results = []
         for fid in sorted_ids:
             row = self.conn.execute(
-                """SELECT f.*, fo.name AS folder_name, p.name AS project_name
+                """SELECT f.id, f.original_name, f.stored_path, f.folder_id,
+                          f.size_bytes, f.file_type, f.created_at, f.updated_at,
+                          fo.name AS folder_name, p.name AS project_name
                    FROM files f
                    JOIN folders fo ON f.folder_id = fo.id
                    JOIN projects p ON fo.project_id = p.id

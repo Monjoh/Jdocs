@@ -326,5 +326,62 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(results[0]["original_name"], "data.csv")
 
 
+    # --- Popular Tags ---
+
+    def test_popular_tags_global(self):
+        """get_popular_tags returns tags sorted by usage count descending."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        f1 = self.db.add_file("a.txt", "/a.txt", fid)
+        f2 = self.db.add_file("b.txt", "/b.txt", fid)
+        f3 = self.db.add_file("c.txt", "/c.txt", fid)
+        self.db.add_tag_to_file(f1, "finance")
+        self.db.add_tag_to_file(f2, "finance")
+        self.db.add_tag_to_file(f3, "finance")
+        self.db.add_tag_to_file(f1, "Q1")
+        self.db.add_tag_to_file(f2, "Q1")
+        self.db.add_tag_to_file(f1, "draft")
+        tags = self.db.get_popular_tags()
+        self.assertEqual(tags[0], "finance")  # 3 uses
+        self.assertEqual(tags[1], "Q1")       # 2 uses
+        self.assertEqual(tags[2], "draft")    # 1 use
+
+    def test_popular_tags_by_project(self):
+        """get_popular_tags filters by project when project_id is given."""
+        p1 = self.db.create_project("Work")
+        p2 = self.db.create_project("Personal")
+        f1 = self.db.create_folder(p1, "Reports")
+        f2 = self.db.create_folder(p2, "Photos")
+        wf1 = self.db.add_file("a.txt", "/a.txt", f1)
+        wf2 = self.db.add_file("b.txt", "/b.txt", f1)
+        pf1 = self.db.add_file("c.txt", "/c.txt", f2)
+        self.db.add_tag_to_file(wf1, "finance")
+        self.db.add_tag_to_file(wf2, "finance")
+        self.db.add_tag_to_file(pf1, "vacation")
+        self.db.add_tag_to_file(pf1, "finance")
+        # Project 1 (Work): finance=2
+        work_tags = self.db.get_popular_tags(project_id=p1)
+        self.assertEqual(work_tags, ["finance"])
+        # Project 2 (Personal): finance=1, vacation=1
+        personal_tags = self.db.get_popular_tags(project_id=p2)
+        self.assertIn("finance", personal_tags)
+        self.assertIn("vacation", personal_tags)
+
+    def test_popular_tags_limit(self):
+        """get_popular_tags respects the limit parameter."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        f1 = self.db.add_file("a.txt", "/a.txt", fid)
+        for i in range(20):
+            self.db.add_tag_to_file(f1, f"tag{i}")
+        tags = self.db.get_popular_tags(limit=5)
+        self.assertEqual(len(tags), 5)
+
+    def test_popular_tags_empty(self):
+        """get_popular_tags returns empty list when no tags exist."""
+        tags = self.db.get_popular_tags()
+        self.assertEqual(tags, [])
+
+
 if __name__ == "__main__":
     unittest.main()
