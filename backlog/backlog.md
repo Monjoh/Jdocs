@@ -18,13 +18,13 @@ Ideas, tech debt, considerations, and unscheduled items.
 - [x] Tag badge/chip UI — *scheduled: Session 11*
 - [x] Left pane split layout: file list when folder selected — *scheduled: Session 11*
 - [x] Open file from app — *scheduled: Session 11*
-- [ ] Collapsible sidebar: toggle button to collapse/expand the left pane so users can focus on main content (sidebar currently has no interactivity beyond viewing)
-- [ ] Sidebar folder click → show files: clicking a folder in the sidebar shows its files in the main panel (same layout as search results), making the sidebar interactive and useful for browsing
+- [x] Collapsible sidebar — *done: Session 11*
+- [x] Sidebar folder click → show files — *done: Session 11*
 - [ ] Subfolder depth: support creating sub-subfolders, possibly auto-organize into subfolders based on tags
 - [ ] Categories removed (Session 05) — tags alone are sufficient. If categories are needed later, re-add as a special "pinned tag" or separate concept
 
 ## Tech Debt
-- [x] Dark theme support — *scheduled: Session 11*
+- [x] Dark theme support (including live switching) — *done: Session 11*
 
 ## Smart Features
 - [ ] Keyword extraction from file content: analyze extracted text to surface relevant keywords (not just row/cell counts) — useful for understanding what a file is about

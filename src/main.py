@@ -4,7 +4,7 @@ from pathlib import Path
 
 import os
 
-from PyQt5.QtCore import Qt, QUrl, pyqtSignal
+from PyQt5.QtCore import QEvent, Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QAction,
@@ -39,12 +39,6 @@ from utils import format_metadata, format_size, sanitize_name, scan_untracked_fi
 
 # -- Styles ------------------------------------------------------------------
 
-DROPZONE_NORMAL = (
-    "DropZone { background-color: #f0f0f0; border: 2px dashed #aaa; border-radius: 8px; }"
-)
-DROPZONE_HOVER = (
-    "DropZone { background-color: #e3f0ff; border: 2px dashed #4a90d9; border-radius: 8px; }"
-)
 
 
 # -- First Launch Dialog -------------------------------------------------------
@@ -125,17 +119,61 @@ class DropZone(QFrame):
 
     def __init__(self):
         super().__init__()
+        self._applying_theme = False
+        self._is_hovering = False
         self.setFrameStyle(QFrame.StyledPanel | QFrame.Sunken)
         self.setMinimumHeight(200)
         self.setAcceptDrops(True)
-        self.setStyleSheet(DROPZONE_NORMAL)
 
         layout = QVBoxLayout(self)
-        label = QLabel("Drop files here\nor click to browse")
-        label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet("color: #888; font-size: 18px; border: none;")
-        layout.addWidget(label)
+        self._label = QLabel("Drop files here\nor click to browse")
+        self._label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self._label)
         self.setCursor(Qt.PointingHandCursor)
+        self._apply_theme()
+
+    def _apply_theme(self):
+        """Apply theme-aware colors for normal state."""
+        palette = self.palette()
+        bg = palette.color(palette.Window)
+        fg = palette.color(palette.WindowText)
+        # Slightly offset background from window color for visual distinction
+        r = min(255, max(0, bg.red() + (15 if bg.lightness() > 128 else -15)))
+        g = min(255, max(0, bg.green() + (15 if bg.lightness() > 128 else -15)))
+        b = min(255, max(0, bg.blue() + (15 if bg.lightness() > 128 else -15)))
+        self._normal_bg = f"#{r:02x}{g:02x}{b:02x}"
+        # Muted foreground
+        mr = (fg.red() + bg.red()) // 2
+        mg = (fg.green() + bg.green()) // 2
+        mb = (fg.blue() + bg.blue()) // 2
+        self._muted_fg = f"#{mr:02x}{mg:02x}{mb:02x}"
+        # Border
+        self._border_color = self._muted_fg
+        # Hover colors
+        self._hover_bg = "#e3f0ff" if bg.lightness() > 128 else "#1a3050"
+
+        self._label.setStyleSheet(f"color: {self._muted_fg}; font-size: 18px; border: none;")
+        if not self._is_hovering:
+            self._set_normal_style()
+
+    def _set_normal_style(self):
+        self.setStyleSheet(
+            f"DropZone {{ background-color: {self._normal_bg}; "
+            f"border: 2px dashed {self._border_color}; border-radius: 8px; }}"
+        )
+
+    def _set_hover_style(self):
+        self.setStyleSheet(
+            f"DropZone {{ background-color: {self._hover_bg}; "
+            f"border: 2px dashed #4a90d9; border-radius: 8px; }}"
+        )
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.PaletteChange and not self._applying_theme:
+            self._applying_theme = True
+            self._apply_theme()
+            self._applying_theme = False
+        super().changeEvent(event)
 
     # -- Click to browse ------------------------------------------------------
 
@@ -151,7 +189,8 @@ class DropZone(QFrame):
         """Accept the drag if it contains file URLs; show hover feedback."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self.setStyleSheet(DROPZONE_HOVER)
+            self._is_hovering = True
+            self._set_hover_style()
         else:
             event.ignore()
 
@@ -164,11 +203,13 @@ class DropZone(QFrame):
 
     def dragLeaveEvent(self, event):
         """Restore normal styling when drag exits."""
-        self.setStyleSheet(DROPZONE_NORMAL)
+        self._is_hovering = False
+        self._set_normal_style()
 
     def dropEvent(self, event):
         """Capture all dropped file paths and emit signal."""
-        self.setStyleSheet(DROPZONE_NORMAL)
+        self._is_hovering = False
+        self._set_normal_style()
         urls = event.mimeData().urls()
         paths = [u.toLocalFile() for u in urls if u.toLocalFile()]
         if paths:
@@ -258,8 +299,7 @@ class PostDropPanel(QFrame):
         tags_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
         self.content_layout.addWidget(tags_label)
 
-        self.tags_input = QLineEdit()
-        self.tags_input.setPlaceholderText("Enter tags separated by commas (e.g. finance, Q1, report)")
+        self.tags_input = TagChipInput()
         self.content_layout.addWidget(self.tags_input)
 
         self.tag_suggestions = TagSuggestionBar(self.tags_input)
@@ -386,11 +426,8 @@ class PostDropPanel(QFrame):
         self.comment_input.clear()
 
     def get_tags(self) -> list[str]:
-        """Parse comma-separated tags from the input field."""
-        raw = self.tags_input.text().strip()
-        if not raw:
-            return []
-        return [t.strip() for t in raw.split(",") if t.strip()]
+        """Return the list of tags from the chip input."""
+        return self.tags_input.get_tags()
 
     def get_comment(self) -> str:
         """Get the comment text."""
@@ -411,27 +448,201 @@ class PostDropPanel(QFrame):
             self.folder_combo.addItem(f["name"], f["id"])
 
 
-class TagSuggestionBar(QWidget):
-    """Horizontal bar of clickable tag chips that append to a QLineEdit."""
+class FlowLayout(QVBoxLayout):
+    """Simple flow layout that wraps widgets into horizontal rows."""
 
-    def __init__(self, tags_input: QLineEdit):
+    def __init__(self):
         super().__init__()
-        self._tags_input = tags_input
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setSpacing(4)
+        self._rows: list[QHBoxLayout] = []
+        self._widgets: list[QWidget] = []
+
+    def add_widget(self, widget: QWidget):
+        """Add a widget to the flow (appends to last row or creates new)."""
+        self._widgets.append(widget)
+        self._rebuild()
+
+    def remove_widget(self, widget: QWidget):
+        """Remove a widget from the flow."""
+        if widget in self._widgets:
+            self._widgets.remove(widget)
+            widget.deleteLater()
+            self._rebuild()
+
+    def clear_all(self):
+        """Remove all widgets."""
+        for w in self._widgets:
+            w.deleteLater()
+        self._widgets.clear()
+        self._rebuild()
+
+    def _rebuild(self):
+        """Rebuild the row layouts from the widget list."""
+        # Remove old rows
+        while self.count():
+            child = self.takeAt(0)
+            if child.layout():
+                while child.layout().count():
+                    child.layout().takeAt(0)
+
+        if not self._widgets:
+            return
+
+        # Build rows — simple approach: one horizontal layout wrapping widgets
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        for w in self._widgets:
+            row.addWidget(w)
+        row.addStretch()
+        self.addLayout(row)
+
+
+class TagChipInput(QWidget):
+    """Tag input with text field and visual chips below.
+
+    User types in the QLineEdit and presses Enter or comma to add a tag chip.
+    Each chip has an 'x' button to remove it. get_tags() returns the list.
+    """
+
+    tags_changed = pyqtSignal()  # emitted when tags are added or removed
+
+    def __init__(self):
+        super().__init__()
+        self._tags: list[str] = []
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        # Chips area (above input so selected tags are clearly visible)
+        self._chips_container = QWidget()
+        self._chips_layout = FlowLayout()
+        self._chips_container.setLayout(self._chips_layout)
+        self._chips_container.hide()
+        layout.addWidget(self._chips_container)
+
+        # Text input for typing new tags
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Type a tag and press Enter")
+        self.input.returnPressed.connect(self._on_commit)
+        self.input.textChanged.connect(self._on_text_changed)
+        layout.addWidget(self.input)
+
+    def _on_text_changed(self, text: str):
+        """Auto-commit when user types a comma."""
+        if "," in text:
+            parts = text.split(",")
+            for part in parts[:-1]:
+                tag = part.strip()
+                if tag:
+                    self._add_tag(tag)
+            # Keep whatever is after the last comma in the input
+            self.input.setText(parts[-1].strip())
+
+    def _on_commit(self):
+        """Commit the current text as a tag."""
+        tag = self.input.text().strip().rstrip(",").strip()
+        if tag:
+            self._add_tag(tag)
+            self.input.clear()
+
+    def _add_tag(self, tag: str):
+        """Add a tag if not already present (case-insensitive check)."""
+        if tag.lower() in {t.lower() for t in self._tags}:
+            return
+        self._tags.append(tag)
+        self._add_chip(tag)
+        self._chips_container.show()
+        self.tags_changed.emit()
+
+    def _add_chip(self, tag: str):
+        """Create a visual chip widget for a tag."""
+        chip = QFrame()
+        chip.setStyleSheet(
+            "QFrame { background-color: #e8f0fe; border: 1px solid #b0cffe; "
+            "border-radius: 10px; padding: 2px 4px; }"
+        )
+        chip_layout = QHBoxLayout(chip)
+        chip_layout.setContentsMargins(8, 2, 4, 2)
+        chip_layout.setSpacing(4)
+
+        label = QLabel(tag)
+        label.setStyleSheet("color: #1a73e8; font-size: 11px; border: none; background: transparent;")
+        chip_layout.addWidget(label)
+
+        remove_btn = QPushButton("x")
+        remove_btn.setFixedSize(16, 16)
+        remove_btn.setCursor(Qt.PointingHandCursor)
+        remove_btn.setStyleSheet(
+            "QPushButton { color: #1a73e8; font-size: 10px; font-weight: bold; "
+            "border: none; background: transparent; padding: 0; }"
+            "QPushButton:hover { color: #cc3333; }"
+        )
+        remove_btn.clicked.connect(lambda: self._remove_tag(tag, chip))
+        chip_layout.addWidget(remove_btn)
+
+        self._chips_layout.add_widget(chip)
+
+    def _remove_tag(self, tag: str, chip: QFrame):
+        """Remove a tag and its chip."""
+        self._tags = [t for t in self._tags if t.lower() != tag.lower()]
+        self._chips_layout.remove_widget(chip)
+        if not self._tags:
+            self._chips_container.hide()
+        self.tags_changed.emit()
+
+    def get_tags(self) -> list[str]:
+        """Return the current list of tags (from chips only, ignores uncommitted input)."""
+        return list(self._tags)
+
+    def set_tags(self, tags: list[str]):
+        """Set the tag list (replaces all current tags)."""
+        self._chips_layout.clear_all()
+        self._tags.clear()
+        for tag in tags:
+            if tag.strip():
+                self._tags.append(tag.strip())
+                self._add_chip(tag.strip())
+        self._chips_container.setVisible(bool(self._tags))
+        self.tags_changed.emit()
+
+    def clear(self):
+        """Remove all tags and clear input."""
+        self._chips_layout.clear_all()
+        self._tags.clear()
+        self.input.clear()
+        self._chips_container.hide()
+
+
+class TagSuggestionBar(QWidget):
+    """Horizontal bar of clickable tag chips that add to a TagChipInput."""
+
+    def __init__(self, tag_input: TagChipInput):
+        super().__init__()
+        self._tag_input = tag_input
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(0, 4, 0, 0)
         self._layout.setSpacing(6)
         self._layout.addStretch()
 
-        # Re-check dimming when user edits the input manually
-        self._tags_input.textChanged.connect(self._update_chip_states)
+        # Re-check dimming when tags change
+        self._tag_input.tags_changed.connect(self._update_chip_states)
 
     def set_suggestions(self, tags: list[str]):
-        """Replace all chips with a new set of suggested tags."""
-        # Clear existing chips
+        """Replace all suggestion chips with a new set."""
         while self._layout.count():
             child = self._layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
+
+        if not tags:
+            self.hide()
+            return
+
+        label = QLabel("Suggested:")
+        label.setStyleSheet("color: #888; font-size: 10px;")
+        self._layout.addWidget(label)
 
         for tag in tags:
             chip = QPushButton(tag)
@@ -442,38 +653,28 @@ class TagSuggestionBar(QWidget):
 
         self._layout.addStretch()
         self._update_chip_states()
+        self.show()
 
-    def _current_tags(self) -> set[str]:
-        """Parse the current tags from the linked input field (lowercased for comparison)."""
-        raw = self._tags_input.text().strip()
-        if not raw:
-            return set()
-        return {t.strip().lower() for t in raw.split(",") if t.strip()}
+    def _current_tags_lower(self) -> set[str]:
+        """Get current tags from the linked TagChipInput (lowercased)."""
+        return {t.lower() for t in self._tag_input.get_tags()}
 
     def _on_chip_clicked(self, tag: str):
-        """Append the tag to the input field if not already present."""
-        current = self._current_tags()
-        if tag.lower() in current:
+        """Add the suggested tag to the input if not already present."""
+        if tag.lower() in self._current_tags_lower():
             return
-        text = self._tags_input.text().strip()
-        if text and not text.endswith(","):
-            text += ", "
-        elif text.endswith(","):
-            text += " "
-        text += tag
-        self._tags_input.setText(text)
+        self._tag_input._add_tag(tag)
 
     def _update_chip_states(self):
-        """Dim chips that are already in the input field."""
-        current = self._current_tags()
+        """Dim suggestion chips that are already added as tags."""
+        current = self._current_tags_lower()
         for i in range(self._layout.count()):
             item = self._layout.itemAt(i)
             widget = item.widget()
             if not isinstance(widget, QPushButton):
                 continue
             tag = widget.text()
-            already_used = tag.lower() in current
-            if already_used:
+            if tag.lower() in current:
                 widget.setStyleSheet(
                     "QPushButton { background-color: #e0e0e0; color: #aaa; "
                     "border: 1px solid #ccc; border-radius: 10px; padding: 2px 10px; "
@@ -507,6 +708,7 @@ class SearchResultsPanel(QFrame):
 
     def __init__(self):
         super().__init__()
+        self._applying_theme = False
         self.setFrameStyle(QFrame.StyledPanel)
 
         outer = QVBoxLayout(self)
@@ -527,12 +729,6 @@ class SearchResultsPanel(QFrame):
         # List widget for results
         self.list_widget = QListWidget()
         self.list_widget.setAlternatingRowColors(True)
-        self.list_widget.setStyleSheet(
-            "QListWidget { border: none; }"
-            "QListWidget::item { border-bottom: 1px solid #eee; padding: 2px; }"
-            "QListWidget::item:hover { background-color: #e8f0fe; }"
-            "QListWidget::item:selected { background-color: #d2e3fc; }"
-        )
         self.list_widget.setCursor(Qt.PointingHandCursor)
         self.list_widget.itemClicked.connect(self._on_item_clicked)
         outer.addWidget(self.list_widget, stretch=1)
@@ -540,9 +736,49 @@ class SearchResultsPanel(QFrame):
         # No-results label (hidden by default)
         self.no_results_label = QLabel()
         self.no_results_label.setAlignment(Qt.AlignCenter)
-        self.no_results_label.setStyleSheet("color: #888; font-size: 14px; padding: 40px;")
         self.no_results_label.hide()
         outer.addWidget(self.no_results_label)
+
+        self._apply_theme()
+
+    def _apply_theme(self):
+        """Apply theme-aware colors for list hover/selected states."""
+        palette = self.palette()
+        bg = palette.color(palette.Window)
+        fg = palette.color(palette.WindowText)
+        highlight = palette.color(palette.Highlight)
+        is_dark = bg.lightness() < 128
+
+        # Derive subtle hover/selected colors from the highlight
+        if is_dark:
+            hover_bg = f"rgba({highlight.red()}, {highlight.green()}, {highlight.blue()}, 60)"
+            selected_bg = f"rgba({highlight.red()}, {highlight.green()}, {highlight.blue()}, 100)"
+            border_color = "#444"
+        else:
+            hover_bg = "#e8f0fe"
+            selected_bg = "#d2e3fc"
+            border_color = "#eee"
+
+        # Muted color for no-results
+        mr = (fg.red() + bg.red()) // 2
+        mg = (fg.green() + bg.green()) // 2
+        mb = (fg.blue() + bg.blue()) // 2
+        muted = f"#{mr:02x}{mg:02x}{mb:02x}"
+
+        self.list_widget.setStyleSheet(
+            f"QListWidget {{ border: none; }}"
+            f"QListWidget::item {{ border-bottom: 1px solid {border_color}; padding: 2px; }}"
+            f"QListWidget::item:hover {{ background-color: {hover_bg}; }}"
+            f"QListWidget::item:selected {{ background-color: {selected_bg}; }}"
+        )
+        self.no_results_label.setStyleSheet(f"color: {muted}; font-size: 14px; padding: 40px;")
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.PaletteChange and not self._applying_theme:
+            self._applying_theme = True
+            self._apply_theme()
+            self._applying_theme = False
+        super().changeEvent(event)
 
     def show_results(self, results: list[dict], query: str):
         """Display search results in the list widget."""
@@ -554,6 +790,31 @@ class SearchResultsPanel(QFrame):
         if not results:
             self.list_widget.hide()
             self.no_results_label.setText(f'No results found for "{query}"')
+            self.no_results_label.show()
+            return
+
+        self.no_results_label.hide()
+        self.list_widget.show()
+
+        for file_record in results:
+            item = QListWidgetItem(self.list_widget)
+            widget = self._make_result_widget(file_record)
+            size = widget.sizeHint()
+            size.setHeight(max(size.height(), 40))
+            item.setSizeHint(size)
+            item.setData(Qt.UserRole, file_record)
+            self.list_widget.setItemWidget(item, widget)
+
+    def show_folder_files(self, results: list[dict], folder_name: str):
+        """Display files from a folder (reuses same layout as search results)."""
+        self.list_widget.clear()
+
+        count = len(results)
+        self.header_label.setText(f'{folder_name} — {count} file{"s" if count != 1 else ""}')
+
+        if not results:
+            self.list_widget.hide()
+            self.no_results_label.setText(f'No files in "{folder_name}"')
             self.no_results_label.show()
             return
 
@@ -648,9 +909,17 @@ class FileDetailPanel(QFrame):
         self.content_layout = QVBoxLayout(content)
         self.content_layout.setAlignment(Qt.AlignTop)
 
+        # Header row: filename (left) + back button (right)
+        header_row = QHBoxLayout()
         self.file_name_label = QLabel()
         self.file_name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-        self.content_layout.addWidget(self.file_name_label)
+        header_row.addWidget(self.file_name_label)
+        header_row.addStretch()
+        self.top_back_btn = QPushButton("Back to Results")
+        self.top_back_btn.setStyleSheet("padding: 6px 14px;")
+        self.top_back_btn.clicked.connect(self.back_clicked.emit)
+        header_row.addWidget(self.top_back_btn)
+        self.content_layout.addLayout(header_row)
 
         self.file_info_label = QLabel()
         self.file_info_label.setStyleSheet("color: #666; font-size: 12px;")
@@ -660,12 +929,22 @@ class FileDetailPanel(QFrame):
         self.location_label.setStyleSheet("font-size: 12px; margin-top: 4px;")
         self.content_layout.addWidget(self.location_label)
 
-        # Open File Location button
-        self.open_location_btn = QPushButton("Open File Location")
-        self.open_location_btn.setStyleSheet("padding: 6px 14px; margin-top: 4px;")
-        self.open_location_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.open_location_btn.clicked.connect(self._on_open_location)
-        self.content_layout.addWidget(self.open_location_btn)
+        # Open File / Open Folder buttons
+        open_btns_row = QHBoxLayout()
+        self.open_file_btn = QPushButton("Open File")
+        self.open_file_btn.setStyleSheet("padding: 6px 14px; margin-top: 4px;")
+        self.open_file_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.open_file_btn.clicked.connect(self._on_open_file)
+        open_btns_row.addWidget(self.open_file_btn)
+
+        self.open_folder_btn = QPushButton("Open Folder")
+        self.open_folder_btn.setStyleSheet("padding: 6px 14px; margin-top: 4px;")
+        self.open_folder_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.open_folder_btn.clicked.connect(self._on_open_folder)
+        open_btns_row.addWidget(self.open_folder_btn)
+
+        open_btns_row.addStretch()
+        self.content_layout.addLayout(open_btns_row)
 
         # -- Editable Tags --
         self._add_separator()
@@ -673,8 +952,7 @@ class FileDetailPanel(QFrame):
         tags_header.setStyleSheet("font-weight: bold; margin-top: 8px;")
         self.content_layout.addWidget(tags_header)
 
-        self.tags_input = QLineEdit()
-        self.tags_input.setPlaceholderText("Enter tags separated by commas")
+        self.tags_input = TagChipInput()
         self.content_layout.addWidget(self.tags_input)
 
         self.tag_suggestions = TagSuggestionBar(self.tags_input)
@@ -727,11 +1005,6 @@ class FileDetailPanel(QFrame):
         button_layout = QHBoxLayout(button_bar)
         button_layout.setContentsMargins(8, 8, 8, 8)
 
-        back_btn = QPushButton("Back to Results")
-        back_btn.setStyleSheet("padding: 8px 20px;")
-        back_btn.clicked.connect(self.back_clicked.emit)
-        button_layout.addWidget(back_btn)
-
         button_layout.addStretch()
 
         save_btn = QPushButton("Save Changes")
@@ -766,7 +1039,7 @@ class FileDetailPanel(QFrame):
         # Tags — editable
         tags = file_record.get("tags", [])
         self._original_tags = list(tags)
-        self.tags_input.setText(", ".join(tags))
+        self.tags_input.set_tags(tags)
 
         # Comments — existing with delete buttons
         self._populate_comments(comments)
@@ -819,7 +1092,20 @@ class FileDetailPanel(QFrame):
             hint.setStyleSheet("color: #999; font-size: 11px;")
             self.comments_layout.addWidget(hint)
 
-    def _on_open_location(self):
+    def _on_open_file(self):
+        """Open the file itself in the default application."""
+        if not self._stored_path:
+            return
+        path = Path(self._stored_path)
+        if not path.exists():
+            QMessageBox.warning(
+                self, "File Not Found",
+                f"The file no longer exists at:\n{self._stored_path}"
+            )
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def _on_open_folder(self):
         """Open the file's containing folder in the system file browser."""
         if not self._stored_path:
             return
@@ -830,15 +1116,13 @@ class FileDetailPanel(QFrame):
                 f"The file no longer exists at:\n{self._stored_path}"
             )
             return
-        parent_dir = str(path.parent)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(parent_dir))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
     def _on_save(self):
         """Emit save signal with current tags and new comment."""
         if self._file_id is None:
             return
-        raw = self.tags_input.text().strip()
-        new_tags = [t.strip() for t in raw.split(",") if t.strip()] if raw else []
+        new_tags = self.tags_input.get_tags()
         new_comment = self.new_comment_input.text().strip()
         self.save_clicked.emit(self._file_id, new_tags, new_comment)
 
@@ -850,16 +1134,47 @@ class FileDetailPanel(QFrame):
 class Sidebar(QFrame):
     """Sidebar with expandable/collapsible project & folder tree."""
 
+    folder_clicked = pyqtSignal(int, str)  # folder_id, folder_name
+
     def __init__(self):
         super().__init__()
+        self._applying_theme = False
         self.setFrameStyle(QFrame.StyledPanel)
         self.setFixedWidth(220)
 
-        # Use system palette for theme-aware colors (light & dark mode)
+        layout = QVBoxLayout(self)
+        self.header = QLabel("Projects")
+        self.header.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(self.header)
+
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.tree.itemClicked.connect(self._on_tree_item_clicked)
+        layout.addWidget(self.tree)
+
+        # Hint shown when no projects exist yet
+        self.hint_label = QLabel("Create a project with the\n'+' button to get started")
+        self.hint_label.setAlignment(Qt.AlignCenter)
+        self.hint_label.hide()
+        layout.addWidget(self.hint_label)
+
+        layout.addStretch()
+
+        # Root folder path indicator
+        self.root_label = QLabel("")
+        self.root_label.setWordWrap(True)
+        layout.addWidget(self.root_label)
+
+        self._apply_theme()
+
+    def _apply_theme(self):
+        """Apply theme-aware colors from the current system palette."""
         palette = self.palette()
         bg = palette.color(palette.Window).name()
         fg = palette.color(palette.WindowText).name()
         base_bg = palette.color(palette.Base).name()
+        highlight = palette.color(palette.Highlight).name()
+        highlight_text = palette.color(palette.HighlightedText).name()
         # Derive a muted color by blending foreground toward background
         fg_c = palette.color(palette.WindowText)
         bg_c = palette.color(palette.Window)
@@ -871,36 +1186,23 @@ class Sidebar(QFrame):
         self.setStyleSheet(
             f"background-color: {bg}; color: {fg}; border-radius: 4px;"
         )
-
-        layout = QVBoxLayout(self)
-        header = QLabel("Projects")
-        header.setStyleSheet(f"font-weight: bold; font-size: 14px; color: {fg};")
-        layout.addWidget(header)
-
-        self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
+        self.header.setStyleSheet(f"font-weight: bold; font-size: 14px; color: {fg};")
         self.tree.setStyleSheet(
             f"QTreeWidget {{ background-color: {base_bg}; color: {fg};"
             f" border: none; font-size: 13px; }}"
-            f" QTreeWidget::item:selected {{ background-color: {palette.color(palette.Highlight).name()};"
-            f" color: {palette.color(palette.HighlightedText).name()}; }}"
+            f" QTreeWidget::item:selected {{ background-color: {highlight};"
+            f" color: {highlight_text}; }}"
         )
-        layout.addWidget(self.tree)
-
-        # Hint shown when no projects exist yet
-        self.hint_label = QLabel("Create a project with the\n'+' button to get started")
-        self.hint_label.setAlignment(Qt.AlignCenter)
         self.hint_label.setStyleSheet(f"color: {muted}; font-size: 11px; padding: 12px;")
-        self.hint_label.hide()
-        layout.addWidget(self.hint_label)
-
-        layout.addStretch()
-
-        # Root folder path indicator
-        self.root_label = QLabel("")
         self.root_label.setStyleSheet(f"color: {muted}; font-size: 10px; padding: 4px;")
-        self.root_label.setWordWrap(True)
-        layout.addWidget(self.root_label)
+
+    def changeEvent(self, event):
+        """Re-apply theme when system palette changes (dark/light mode switch)."""
+        if event.type() == QEvent.PaletteChange and not self._applying_theme:
+            self._applying_theme = True
+            self._apply_theme()
+            self._applying_theme = False
+        super().changeEvent(event)
 
     def set_root_folder_label(self, root_path: str):
         """Show the active root folder path at the bottom of the sidebar."""
@@ -909,6 +1211,12 @@ class Sidebar(QFrame):
             display = "..." + display[-25:]
         self.root_label.setText(display)
         self.root_label.setToolTip(root_path)
+
+    def _on_tree_item_clicked(self, item: QTreeWidgetItem, column: int):
+        """Emit folder_clicked when a folder (child item) is clicked."""
+        folder_id = item.data(0, Qt.UserRole)
+        if folder_id is not None:
+            self.folder_clicked.emit(folder_id, item.text(0))
 
     def load_from_database(self, db: Database):
         """Populate the sidebar tree from the database."""
@@ -920,8 +1228,10 @@ class Sidebar(QFrame):
             self.hint_label.hide()
             for project in projects:
                 project_item = QTreeWidgetItem(self.tree, [project["name"]])
+                project_item.setData(0, Qt.UserRole, None)  # projects have no folder_id
                 for folder in db.list_folders(project["id"]):
-                    QTreeWidgetItem(project_item, [folder["name"]])
+                    folder_item = QTreeWidgetItem(project_item, [folder["name"]])
+                    folder_item.setData(0, Qt.UserRole, folder["id"])
         self.tree.expandAll()
 
 
@@ -930,6 +1240,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self._applying_theme = False
         self.setWindowTitle("jDocs")
         self.setMinimumSize(700, 500)
         self.resize(750, 550)
@@ -962,11 +1273,24 @@ class MainWindow(QMainWindow):
         # Top-level vertical layout: search bar on top, content below
         root_layout = QVBoxLayout(central)
 
-        # Search bar
+        # Search bar row: toggle + search input
+        search_row = QHBoxLayout()
+
+        self.sidebar_toggle = QPushButton("<")
+        self.sidebar_toggle.setFixedSize(28, 28)
+        self.sidebar_toggle.setToolTip("Collapse sidebar")
+        self.sidebar_toggle.setStyleSheet(
+            "QPushButton { border: none; font-weight: bold; color: #888; font-size: 14px; }"
+            "QPushButton:hover { color: #333; }"
+        )
+        self.sidebar_toggle.clicked.connect(self._on_toggle_sidebar)
+        search_row.addWidget(self.sidebar_toggle)
+
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search files, tags, metadata...")
-        self.search_bar.setStyleSheet("padding: 8px; font-size: 14px; border-radius: 4px;")
-        root_layout.addWidget(self.search_bar)
+        self._apply_search_bar_theme()
+        search_row.addWidget(self.search_bar)
+        root_layout.addLayout(search_row)
 
         # Content area: sidebar + main panel
         content_layout = QHBoxLayout()
@@ -1014,6 +1338,36 @@ class MainWindow(QMainWindow):
         self.file_detail_panel.back_clicked.connect(self._on_back_to_results)
         self.file_detail_panel.save_clicked.connect(self._on_file_save)
         self.file_detail_panel.delete_comment_clicked.connect(self._on_delete_comment)
+        self.sidebar.folder_clicked.connect(self._on_folder_clicked)
+
+    def _apply_search_bar_theme(self):
+        """Apply theme-aware styling to the search bar."""
+        palette = self.palette() if hasattr(self, 'palette') else None
+        if palette:
+            bg = palette.color(palette.Base).name()
+            fg = palette.color(palette.WindowText).name()
+            border = palette.color(palette.Mid).name()
+            self.search_bar.setStyleSheet(
+                f"padding: 8px; font-size: 14px; border-radius: 4px;"
+                f" background-color: {bg}; color: {fg}; border: 1px solid {border};"
+            )
+        else:
+            self.search_bar.setStyleSheet("padding: 8px; font-size: 14px; border-radius: 4px;")
+
+    def changeEvent(self, event):
+        """Re-apply theme-dependent styles when system palette changes."""
+        if event.type() == QEvent.PaletteChange and not self._applying_theme:
+            self._applying_theme = True
+            self._apply_search_bar_theme()
+            self._applying_theme = False
+        super().changeEvent(event)
+
+    def _on_toggle_sidebar(self):
+        """Toggle sidebar visibility."""
+        visible = self.sidebar.isVisible()
+        self.sidebar.setVisible(not visible)
+        self.sidebar_toggle.setText(">" if visible else "<")
+        self.sidebar_toggle.setToolTip("Expand sidebar" if visible else "Collapse sidebar")
 
     def _run_first_launch(self) -> bool:
         """Show first-launch dialog. Returns True if user selected a folder."""
@@ -1169,6 +1523,22 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(0)
         self.file_info.setText("Drop a file to get started")
         self.file_info.setStyleSheet("color: #aaa; padding: 20px;")
+
+    def _on_folder_clicked(self, folder_id: int, folder_name: str):
+        """Show files in the clicked sidebar folder."""
+        files = self.db.list_files(folder_id)
+        # Enrich each file record with tags and project/folder names
+        folder = self.db.get_folder(folder_id)
+        project = self.db.get_project(folder["project_id"]) if folder else None
+        for f in files:
+            f["tags"] = self.db.get_file_tags(f["id"])
+            f["folder_name"] = folder["name"] if folder else "?"
+            f["project_name"] = project["name"] if project else "?"
+        self.search_results_panel.show_folder_files(files, folder_name)
+        self.stack.setCurrentIndex(2)
+        count = len(files)
+        self.file_info.setText(f'{folder_name}: {count} file{"s" if count != 1 else ""}')
+        self.file_info.setStyleSheet("color: #4a90d9; padding: 20px;")
 
     def _on_result_clicked(self, file_record: dict):
         """Show file detail panel for a clicked search result."""

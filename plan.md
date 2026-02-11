@@ -206,17 +206,21 @@
 
 ---
 
-### Session 11 — UI/UX Polish
-**Status:** Planned | **Date:** TBD
+### Session 11 — UI/UX Polish ✓
+**Status:** Done | **Date:** 2026-02-11
 
-**Deliverable:** Visual and interaction improvements based on backlog items.
+**Deliverable:** Dark/light theme live switching, tag chip UI, collapsible sidebar, folder browsing, open file/folder from details.
 
-**Planned scope (candidates — will finalize at session start):**
-- Tag badge/chip UI: visual chips with "x" to remove instead of comma-separated text input
-- File list in sidebar: show files when a folder is selected in the tree
-- Open file from app: double-click to open in default application
-- Dark theme support: respect system theme instead of hardcoded light backgrounds
-- Other quick wins from backlog
+**What was built:**
+- `src/main.py` — Live theme switching via `_apply_theme()` + `changeEvent(PaletteChange)` on Sidebar, DropZone, SearchResultsPanel, and MainWindow. Tag chip UI (`TagChipInput` + updated `TagSuggestionBar`) replacing comma-separated QLineEdit in both PostDropPanel and FileDetailPanel. Collapsible sidebar toggle button. Sidebar folder click → show files in main panel. "Open File" + "Open Folder" buttons in FileDetailPanel. "Back to Results" at top-right of detail view.
+- `src/extractor.py` — Lightweight extraction caps: docx (50 paragraphs), pptx (20 slides), code/txt (50KB), global MAX_TEXT_PREVIEW (5000 chars)
+- New widgets: `FlowLayout`, `TagChipInput`
+
+**Key decisions:**
+- Hybrid tag input (type + Enter/comma = chip) preserves typing speed while giving visual feedback
+- `_applying_theme` guard prevents infinite recursion from `setStyleSheet()` → `PaletteChange` loop
+- Dark mode uses `rgba()` for hover/selected in search results — lets underlying content show through
+- Sidebar folder click only (not project click) — projects contain folders, not files directly
 
 ---
 
@@ -374,4 +378,4 @@ erDiagram
 ```
 
 ## Up Next
-**Session 11** — UI/UX polish.
+**Session 12** — PyInstaller packaging & distribution.

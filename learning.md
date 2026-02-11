@@ -24,6 +24,8 @@ Accumulated patterns and preferences from working on this project. Updated as we
 - Providing multiple input methods (drag & drop + click-to-browse) for better UX across different setups
 - Dedicated extractors per file type instead of one-size-fits-all — allows type-specific optimizations (e.g. CSV row capping)
 - Pinning action buttons outside scroll areas so they're always accessible
+- Placing navigation buttons (Back, Clear) at top-right of panels for consistent UX — same position across SearchResultsPanel and FileDetailPanel
+- Hybrid tag input (type + Enter/comma = chip) — best of both worlds: fast typing for power users, visual feedback for everyone
 
 ## Configuration & Persistence Patterns
 - **Separate config location from data location**: config in OS user data dir (always findable), DB inside root folder (travels with data)
@@ -45,6 +47,12 @@ Accumulated patterns and preferences from working on this project. Updated as we
 
 ## SQLite Gotchas
 - **`cur.lastrowid` is unreliable after `INSERT OR IGNORE`**: When the INSERT is ignored (duplicate), `lastrowid` doesn't reset to 0 — it retains the rowid from the most recent *successful* INSERT across any table. Use `cur.rowcount == 0` to detect ignored inserts instead.
+
+## Theming & Dark Mode Patterns
+- **Never hardcode colors in `__init__`** — extract to `_apply_theme()` and call from `changeEvent(QEvent.PaletteChange)`. Otherwise colors go stale when OS theme switches at runtime.
+- **CRITICAL: Guard `changeEvent(PaletteChange)` against recursion** — `setStyleSheet()` fires another `PaletteChange`, causing infinite recursion → "Abort trap 6" crash. Always use a `_applying_theme` boolean guard.
+- **`QPalette.PlaceholderText` is unreliable on macOS dark mode** (returns white). Derive muted colors by averaging foreground and background: `(fg.red() + bg.red()) // 2` etc.
+- **Use palette roles, not hardcoded hex**: `palette.Window` for background, `palette.WindowText` for foreground, `palette.Base` for input backgrounds, `palette.Highlight`/`palette.HighlightedText` for selections, `palette.Mid` for borders.
 
 ## What to Avoid
 - Always check ALL type hints when fixing compatibility, not just the first one found
