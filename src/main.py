@@ -134,7 +134,7 @@ class DropZone(QFrame):
 
     def _apply_theme(self):
         """Apply theme-aware colors for normal state."""
-        palette = self.palette()
+        palette = QApplication.palette()
         bg = palette.color(palette.Window)
         fg = palette.color(palette.WindowText)
         # Slightly offset background from window color for visual distinction
@@ -743,7 +743,7 @@ class SearchResultsPanel(QFrame):
 
     def _apply_theme(self):
         """Apply theme-aware colors for list hover/selected states."""
-        palette = self.palette()
+        palette = QApplication.palette()
         bg = palette.color(palette.Window)
         fg = palette.color(palette.WindowText)
         highlight = palette.color(palette.Highlight)
@@ -1169,7 +1169,7 @@ class Sidebar(QFrame):
 
     def _apply_theme(self):
         """Apply theme-aware colors from the current system palette."""
-        palette = self.palette()
+        palette = QApplication.palette()
         bg = palette.color(palette.Window).name()
         fg = palette.color(palette.WindowText).name()
         base_bg = palette.color(palette.Base).name()
@@ -1342,17 +1342,14 @@ class MainWindow(QMainWindow):
 
     def _apply_search_bar_theme(self):
         """Apply theme-aware styling to the search bar."""
-        palette = self.palette() if hasattr(self, 'palette') else None
-        if palette:
-            bg = palette.color(palette.Base).name()
-            fg = palette.color(palette.WindowText).name()
-            border = palette.color(palette.Mid).name()
-            self.search_bar.setStyleSheet(
-                f"padding: 8px; font-size: 14px; border-radius: 4px;"
-                f" background-color: {bg}; color: {fg}; border: 1px solid {border};"
-            )
-        else:
-            self.search_bar.setStyleSheet("padding: 8px; font-size: 14px; border-radius: 4px;")
+        palette = QApplication.palette()
+        bg = palette.color(palette.Base).name()
+        fg = palette.color(palette.WindowText).name()
+        border = palette.color(palette.Mid).name()
+        self.search_bar.setStyleSheet(
+            f"padding: 8px; font-size: 14px; border-radius: 4px;"
+            f" background-color: {bg}; color: {fg}; border: 1px solid {border};"
+        )
 
     def changeEvent(self, event):
         """Re-apply theme-dependent styles when system palette changes."""
