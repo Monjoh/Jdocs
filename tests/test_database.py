@@ -383,5 +383,96 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(tags, [])
 
 
+    # --- Subfolder / Nesting ---
+
+    def test_get_folder_depth_root(self):
+        """Root-level folder has depth 1."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        self.assertEqual(self.db.get_folder_depth(fid), 1)
+
+    def test_get_folder_depth_nested(self):
+        """Nested folders report correct depth."""
+        pid = self.db.create_project("Work")
+        f1 = self.db.create_folder(pid, "Reports")
+        f2 = self.db.create_folder(pid, "Q1", parent_folder_id=f1)
+        f3 = self.db.create_folder(pid, "January", parent_folder_id=f2)
+        self.assertEqual(self.db.get_folder_depth(f1), 1)
+        self.assertEqual(self.db.get_folder_depth(f2), 2)
+        self.assertEqual(self.db.get_folder_depth(f3), 3)
+
+    def test_get_folder_path_root(self):
+        """Root folder path is a single-element list."""
+        pid = self.db.create_project("Work")
+        fid = self.db.create_folder(pid, "Reports")
+        path = self.db.get_folder_path(fid)
+        self.assertEqual(len(path), 1)
+        self.assertEqual(path[0]["name"], "Reports")
+
+    def test_get_folder_path_nested(self):
+        """Nested folder path returns correct chain from root to leaf."""
+        pid = self.db.create_project("Work")
+        f1 = self.db.create_folder(pid, "Reports")
+        f2 = self.db.create_folder(pid, "Q1", parent_folder_id=f1)
+        f3 = self.db.create_folder(pid, "January", parent_folder_id=f2)
+        path = self.db.get_folder_path(f3)
+        self.assertEqual(len(path), 3)
+        self.assertEqual(path[0]["name"], "Reports")
+        self.assertEqual(path[1]["name"], "Q1")
+        self.assertEqual(path[2]["name"], "January")
+
+    def test_get_folder_path_nonexistent(self):
+        """Nonexistent folder returns empty path."""
+        path = self.db.get_folder_path(9999)
+        self.assertEqual(path, [])
+
+    def test_get_all_folders_nested(self):
+        """get_all_folders_nested returns flat list with correct depth and display."""
+        pid = self.db.create_project("Work")
+        f1 = self.db.create_folder(pid, "Reports")
+        f2 = self.db.create_folder(pid, "Q1", parent_folder_id=f1)
+        f3 = self.db.create_folder(pid, "January", parent_folder_id=f2)
+        f4 = self.db.create_folder(pid, "Slides")  # root sibling
+        result = self.db.get_all_folders_nested(pid)
+        self.assertEqual(len(result), 4)
+        # Check tree order: Reports, Q1, January, Slides
+        self.assertEqual(result[0]["name"], "Reports")
+        self.assertEqual(result[0]["depth"], 0)
+        self.assertEqual(result[0]["display"], "Reports")
+        self.assertEqual(result[1]["name"], "Q1")
+        self.assertEqual(result[1]["depth"], 1)
+        self.assertEqual(result[1]["display"], "Reports > Q1")
+        self.assertEqual(result[2]["name"], "January")
+        self.assertEqual(result[2]["depth"], 2)
+        self.assertEqual(result[2]["display"], "Reports > Q1 > January")
+        self.assertEqual(result[3]["name"], "Slides")
+        self.assertEqual(result[3]["depth"], 0)
+
+    def test_create_folder_depth_limit(self):
+        """Creating a folder beyond MAX_FOLDER_DEPTH raises ValueError."""
+        from database import MAX_FOLDER_DEPTH
+        pid = self.db.create_project("Work")
+        parent_id = None
+        # Create folders up to max depth
+        for i in range(MAX_FOLDER_DEPTH):
+            parent_id = self.db.create_folder(pid, f"Level{i+1}", parent_folder_id=parent_id)
+        # Next one should fail
+        with self.assertRaises(ValueError) as ctx:
+            self.db.create_folder(pid, "TooDeep", parent_folder_id=parent_id)
+        self.assertIn("maximum nesting depth", str(ctx.exception))
+
+    def test_create_folder_at_max_depth_succeeds(self):
+        """Creating a folder at exactly MAX_FOLDER_DEPTH should succeed."""
+        from database import MAX_FOLDER_DEPTH
+        pid = self.db.create_project("Work")
+        parent_id = None
+        for i in range(MAX_FOLDER_DEPTH - 1):
+            parent_id = self.db.create_folder(pid, f"Level{i+1}", parent_folder_id=parent_id)
+        # This should be exactly at max depth — should succeed
+        fid = self.db.create_folder(pid, "AtMax", parent_folder_id=parent_id)
+        self.assertIsNotNone(fid)
+        self.assertEqual(self.db.get_folder_depth(fid), MAX_FOLDER_DEPTH)
+
+
 if __name__ == "__main__":
     unittest.main()

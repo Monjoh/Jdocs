@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 
+MAX_FOLDER_DEPTH = 5
+
+
 class Database:
     """SQLite database layer for jDocs."""
 
@@ -117,6 +120,12 @@ class Database:
     # --- Folders ---
 
     def create_folder(self, project_id: int, name: str, parent_folder_id: Optional[int] = None) -> int:
+        if parent_folder_id is not None:
+            parent_depth = self.get_folder_depth(parent_folder_id)
+            if parent_depth >= MAX_FOLDER_DEPTH:
+                raise ValueError(
+                    f"Cannot create subfolder: maximum nesting depth ({MAX_FOLDER_DEPTH}) reached."
+                )
         cur = self.conn.execute(
             "INSERT INTO folders (project_id, name, parent_folder_id) VALUES (?, ?, ?)",
             (project_id, name, parent_folder_id),
@@ -142,6 +151,66 @@ class Database:
                 (project_id, parent_folder_id),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_folder_depth(self, folder_id: int) -> int:
+        """Return the depth of a folder (root = 1). Walks parent_folder_id chain."""
+        depth = 0
+        current_id = folder_id
+        while current_id is not None:
+            row = self.conn.execute(
+                "SELECT parent_folder_id FROM folders WHERE id = ?", (current_id,)
+            ).fetchone()
+            if not row:
+                break
+            depth += 1
+            current_id = row["parent_folder_id"]
+        return depth
+
+    def get_folder_path(self, folder_id: int) -> List[Dict]:
+        """Return the chain of folders from root to the given folder.
+
+        E.g. for folder "January" whose parent is "Q1" whose parent is "Reports":
+        returns [{"id": 1, "name": "Reports"}, {"id": 2, "name": "Q1"}, {"id": 3, "name": "January"}]
+        """
+        chain = []
+        current_id = folder_id
+        while current_id is not None:
+            row = self.conn.execute(
+                "SELECT id, name, parent_folder_id FROM folders WHERE id = ?", (current_id,)
+            ).fetchone()
+            if not row:
+                break
+            chain.append({"id": row["id"], "name": row["name"]})
+            current_id = row["parent_folder_id"]
+        chain.reverse()
+        return chain
+
+    def get_all_folders_nested(self, project_id: int) -> List[Dict]:
+        """Return a flat list of all folders in a project with depth and display path.
+
+        Each entry: {"id", "name", "parent_folder_id", "depth", "display"}
+        where display is a breadcrumb like "Reports > Q1 > January".
+        Sorted in tree order (parent before children, alphabetical within level).
+        """
+        result = []
+        self._collect_folders(project_id, None, 0, [], result)
+        return result
+
+    def _collect_folders(self, project_id: int, parent_id: Optional[int],
+                         depth: int, path_parts: list, result: list):
+        """Recursively collect folders in tree order."""
+        folders = self.list_folders(project_id, parent_folder_id=parent_id)
+        for folder in folders:
+            parts = path_parts + [folder["name"]]
+            display = " > ".join(parts)
+            result.append({
+                "id": folder["id"],
+                "name": folder["name"],
+                "parent_folder_id": folder["parent_folder_id"],
+                "depth": depth,
+                "display": display,
+            })
+            self._collect_folders(project_id, folder["id"], depth + 1, parts, result)
 
     def delete_folder(self, folder_id: int):
         self.conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))

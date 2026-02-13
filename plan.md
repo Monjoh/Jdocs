@@ -2,7 +2,7 @@
 
 ## Current State
 **Phase:** Development
-**Status:** Session 10 complete
+**Status:** Session 13 complete
 
 ## Session Roadmap
 
@@ -224,14 +224,37 @@
 
 ---
 
-### Session 12 — PyInstaller Packaging & Distribution
-**Status:** Planned | **Date:** TBD
+### Session 12 — PyInstaller Packaging & Distribution ✓
+**Status:** Done | **Date:** 2026-02-12
 
 **Deliverable:** Standalone .exe (Windows) and .app (macOS) that run without Python installed.
 
+**What was built:**
+- `jdocs.spec` — PyInstaller spec with hidden imports, Qt module exclusions, macOS BUNDLE config
+- `build.py` — cross-platform build script with `--clean` flag
+- `requirements-dev.txt` — dev dependencies (pytest, pyinstaller)
+- Updated README with install/build/test instructions
+- macOS build: ~98 MB `.app` bundle, launches successfully
+- Windows build: tested and working by user
+
 ---
 
-### Session 13 — PDF Support & Future Enhancements
+### Session 13 — Nested Subfolder Support ✓
+**Status:** Done | **Date:** 2026-02-13
+
+**Deliverable:** Full nested subfolder hierarchy — create, display, select, and organize files into subfolders.
+
+**What was built:**
+- Database: `get_folder_path()`, `get_folder_depth()`, `get_all_folders_nested()`, `MAX_FOLDER_DEPTH=5` enforced in `create_folder()`
+- Sidebar: recursive tree display with nested subfolders, right-click context menu (New Project / New Folder / New Subfolder)
+- Folder dropdown: breadcrumb display (`"Reports > Q1 > January"`), context-aware "+" button creates subfolder when folder is selected
+- File placement: nested filesystem paths (`ROOT/Project/Parent/Child/file`)
+- File detail: breadcrumb location display
+- Tests: 128 total (8 new for subfolder logic)
+
+---
+
+### Session 14 — PDF Support & Future Enhancements
 **Status:** Planned | **Date:** TBD
 
 **Deliverable:** PDF text extraction, plus any remaining backlog items.
@@ -378,4 +401,4 @@ erDiagram
 ```
 
 ## Up Next
-**Session 12** — PyInstaller packaging & distribution.
+**Session 14** — PDF support & future enhancements.

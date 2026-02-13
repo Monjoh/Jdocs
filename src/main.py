@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -441,11 +442,15 @@ class PostDropPanel(QFrame):
             self.project_combo.addItem(p["name"], p["id"])
 
     def set_folders(self, folders: list[dict]):
-        """Populate the folder dropdown. Each item stores the folder ID as user data."""
+        """Populate the folder dropdown with nested breadcrumb display.
+
+        Accepts either flat folders (with "name") or nested folders (with "display" and "depth").
+        """
         self.folder_combo.clear()
         self.folder_combo.addItem("(No folder selected)", None)
         for f in folders:
-            self.folder_combo.addItem(f["name"], f["id"])
+            display = f.get("display", f["name"])
+            self.folder_combo.addItem(display, f["id"])
 
 
 class FlowLayout(QVBoxLayout):
@@ -1135,6 +1140,9 @@ class Sidebar(QFrame):
     """Sidebar with expandable/collapsible project & folder tree."""
 
     folder_clicked = pyqtSignal(int, str)  # folder_id, folder_name
+    create_project_requested = pyqtSignal()
+    create_folder_requested = pyqtSignal(int)  # project_id
+    create_subfolder_requested = pyqtSignal(int, int)  # project_id, parent_folder_id
 
     def __init__(self):
         super().__init__()
@@ -1150,6 +1158,8 @@ class Sidebar(QFrame):
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.itemClicked.connect(self._on_tree_item_clicked)
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self.tree)
 
         # Hint shown when no projects exist yet
@@ -1218,8 +1228,41 @@ class Sidebar(QFrame):
         if folder_id is not None:
             self.folder_clicked.emit(folder_id, item.text(0))
 
+    def _on_context_menu(self, position):
+        """Show context menu for creating projects/folders/subfolders."""
+        item = self.tree.itemAt(position)
+        menu = QMenu(self)
+
+        if item is None:
+            # Right-clicked on empty space
+            action = menu.addAction("New Project")
+            action.triggered.connect(self.create_project_requested.emit)
+        else:
+            folder_id = item.data(0, Qt.UserRole)
+            project_id = item.data(0, Qt.UserRole + 1)
+
+            if folder_id is None and project_id is not None:
+                # Right-clicked on a project
+                action = menu.addAction("New Folder")
+                action.triggered.connect(lambda: self.create_folder_requested.emit(project_id))
+                menu.addSeparator()
+                action2 = menu.addAction("New Project")
+                action2.triggered.connect(self.create_project_requested.emit)
+            elif folder_id is not None and project_id is not None:
+                # Right-clicked on a folder
+                action = menu.addAction("New Subfolder")
+                action.triggered.connect(
+                    lambda: self.create_subfolder_requested.emit(project_id, folder_id)
+                )
+                menu.addSeparator()
+                action2 = menu.addAction("New Project")
+                action2.triggered.connect(self.create_project_requested.emit)
+
+        if menu.actions():
+            menu.exec_(self.tree.viewport().mapToGlobal(position))
+
     def load_from_database(self, db: Database):
-        """Populate the sidebar tree from the database."""
+        """Populate the sidebar tree from the database (with nested subfolders)."""
         self.tree.clear()
         projects = db.list_projects()
         if not projects:
@@ -1229,10 +1272,19 @@ class Sidebar(QFrame):
             for project in projects:
                 project_item = QTreeWidgetItem(self.tree, [project["name"]])
                 project_item.setData(0, Qt.UserRole, None)  # projects have no folder_id
-                for folder in db.list_folders(project["id"]):
-                    folder_item = QTreeWidgetItem(project_item, [folder["name"]])
-                    folder_item.setData(0, Qt.UserRole, folder["id"])
+                project_item.setData(0, Qt.UserRole + 1, project["id"])  # store project_id
+                self._add_folder_children(db, project_item, project["id"], None)
         self.tree.expandAll()
+
+    def _add_folder_children(self, db: Database, parent_item: QTreeWidgetItem,
+                             project_id: int, parent_folder_id):
+        """Recursively add folder children to a tree item."""
+        folders = db.list_folders(project_id, parent_folder_id=parent_folder_id)
+        for folder in folders:
+            folder_item = QTreeWidgetItem(parent_item, [folder["name"]])
+            folder_item.setData(0, Qt.UserRole, folder["id"])
+            folder_item.setData(0, Qt.UserRole + 1, project_id)
+            self._add_folder_children(db, folder_item, project_id, folder["id"])
 
 
 class MainWindow(QMainWindow):
@@ -1339,6 +1391,9 @@ class MainWindow(QMainWindow):
         self.file_detail_panel.save_clicked.connect(self._on_file_save)
         self.file_detail_panel.delete_comment_clicked.connect(self._on_delete_comment)
         self.sidebar.folder_clicked.connect(self._on_folder_clicked)
+        self.sidebar.create_project_requested.connect(self._on_sidebar_new_project)
+        self.sidebar.create_folder_requested.connect(self._on_sidebar_new_folder)
+        self.sidebar.create_subfolder_requested.connect(self._on_sidebar_new_subfolder)
 
     def _apply_search_bar_theme(self):
         """Apply theme-aware styling to the search bar."""
@@ -1487,7 +1542,7 @@ class MainWindow(QMainWindow):
         """When project selection changes, update the folder dropdown and tag suggestions."""
         project_id = self.post_drop_panel.project_combo.currentData()
         if project_id is not None:
-            folders = self.db.list_folders(project_id)
+            folders = self.db.get_all_folders_nested(project_id)
             self.post_drop_panel.set_folders(folders)
             suggestions = self.db.get_popular_tags(project_id=project_id, limit=10)
         else:
@@ -1588,7 +1643,10 @@ class MainWindow(QMainWindow):
         folder = self.db.get_folder(file_record["folder_id"])
         if folder:
             project = self.db.get_project(folder["project_id"])
-            file_record["folder_name"] = folder["name"]
+            # Build breadcrumb folder path for display
+            folder_chain = self.db.get_folder_path(file_record["folder_id"])
+            folder_display = " > ".join(f["name"] for f in folder_chain)
+            file_record["folder_name"] = folder_display
             file_record["project_name"] = project["name"] if project else "?"
         else:
             file_record["folder_name"] = "?"
@@ -1624,11 +1682,64 @@ class MainWindow(QMainWindow):
             self.sidebar.load_from_database(self.db)
 
     def _on_new_folder(self):
-        """Prompt user for a new folder name under the selected project."""
+        """Prompt user for a new folder name. Creates as subfolder if a folder is selected."""
         project_id = self.post_drop_panel.project_combo.currentData()
         if project_id is None:
             QMessageBox.warning(self, "No Project", "Please select a project first.")
             return
+
+        # If a folder is currently selected, create as subfolder
+        parent_folder_id = self.post_drop_panel.folder_combo.currentData()
+        if parent_folder_id is not None:
+            parent_display = self.post_drop_panel.folder_combo.currentText()
+            title = "New Subfolder"
+            prompt = f"Subfolder name (inside {parent_display}):"
+        else:
+            title = "New Folder"
+            prompt = "Folder name:"
+
+        name, ok = QInputDialog.getText(self, title, prompt)
+        if ok and name.strip():
+            name = sanitize_name(name)
+            if not name:
+                QMessageBox.warning(self, "Invalid Name", "Folder name contains only invalid characters.")
+                return
+            try:
+                new_id = self.db.create_folder(project_id, name, parent_folder_id=parent_folder_id)
+            except ValueError as e:
+                QMessageBox.warning(self, "Depth Limit", str(e))
+                return
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not create folder: {e}")
+                return
+            # Refresh folder dropdown with nested display and select the new folder
+            folders = self.db.get_all_folders_nested(project_id)
+            self.post_drop_panel.set_folders(folders)
+            # Find and select the newly created folder by id
+            for i in range(self.post_drop_panel.folder_combo.count()):
+                if self.post_drop_panel.folder_combo.itemData(i) == new_id:
+                    self.post_drop_panel.folder_combo.setCurrentIndex(i)
+                    break
+            # Refresh sidebar
+            self.sidebar.load_from_database(self.db)
+
+    def _on_sidebar_new_project(self):
+        """Create a new project from the sidebar context menu."""
+        name, ok = QInputDialog.getText(self, "New Project", "Project name:")
+        if ok and name.strip():
+            name = sanitize_name(name)
+            if not name:
+                QMessageBox.warning(self, "Invalid Name", "Project name contains only invalid characters.")
+                return
+            try:
+                self.db.create_project(name)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not create project: {e}")
+                return
+            self.sidebar.load_from_database(self.db)
+
+    def _on_sidebar_new_folder(self, project_id: int):
+        """Create a new root-level folder from the sidebar context menu."""
         name, ok = QInputDialog.getText(self, "New Folder", "Folder name:")
         if ok and name.strip():
             name = sanitize_name(name)
@@ -1640,13 +1751,24 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.warning(self, "Error", f"Could not create folder: {e}")
                 return
-            # Refresh folder dropdown and select the new folder
-            folders = self.db.list_folders(project_id)
-            self.post_drop_panel.set_folders(folders)
-            idx = self.post_drop_panel.folder_combo.findText(name)
-            if idx >= 0:
-                self.post_drop_panel.folder_combo.setCurrentIndex(idx)
-            # Refresh sidebar
+            self.sidebar.load_from_database(self.db)
+
+    def _on_sidebar_new_subfolder(self, project_id: int, parent_folder_id: int):
+        """Create a subfolder from the sidebar context menu."""
+        name, ok = QInputDialog.getText(self, "New Subfolder", "Subfolder name:")
+        if ok and name.strip():
+            name = sanitize_name(name)
+            if not name:
+                QMessageBox.warning(self, "Invalid Name", "Folder name contains only invalid characters.")
+                return
+            try:
+                self.db.create_folder(project_id, name, parent_folder_id=parent_folder_id)
+            except ValueError as e:
+                QMessageBox.warning(self, "Depth Limit", str(e))
+                return
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not create subfolder: {e}")
+                return
             self.sidebar.load_from_database(self.db)
 
     def _on_approve(self):
@@ -1663,10 +1785,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Missing Folder", "Please select a folder before approving.")
             return
 
-        # Build target directory
+        # Build target directory using nested folder path
         project = self.db.get_project(project_id)
-        folder = self.db.get_folder(folder_id)
-        target_dir = self.root_folder / project["name"] / folder["name"]
+        folder_chain = self.db.get_folder_path(folder_id)
+        folder_parts = [f["name"] for f in folder_chain]
+        target_dir = self.root_folder / project["name"] / Path(*folder_parts)
         target_dir.mkdir(parents=True, exist_ok=True)
 
         tags = panel.get_tags()
