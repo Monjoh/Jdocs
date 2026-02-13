@@ -4,12 +4,13 @@ from pathlib import Path
 
 import os
 
-from PyQt5.QtCore import QEvent, Qt, QUrl, pyqtSignal
+from PyQt5.QtCore import QEvent, Qt, QSortFilterProxyModel, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QComboBox,
+    QCompleter,
     QDialog,
     QFileDialog,
     QFrame,
@@ -273,6 +274,9 @@ class PostDropPanel(QFrame):
 
         project_row = QHBoxLayout()
         self.project_combo = QComboBox()
+        self.project_combo.setEditable(True)
+        self.project_combo.setInsertPolicy(QComboBox.NoInsert)
+        self._setup_filter_completer(self.project_combo, "Search or select a project...")
         project_row.addWidget(self.project_combo, stretch=1)
         self.new_project_btn = QPushButton("+")
         self.new_project_btn.setFixedWidth(30)
@@ -286,6 +290,9 @@ class PostDropPanel(QFrame):
 
         folder_row = QHBoxLayout()
         self.folder_combo = QComboBox()
+        self.folder_combo.setEditable(True)
+        self.folder_combo.setInsertPolicy(QComboBox.NoInsert)
+        self._setup_filter_completer(self.folder_combo, "Search or select a folder...")
         folder_row.addWidget(self.folder_combo, stretch=1)
         self.new_folder_btn = QPushButton("+")
         self.new_folder_btn.setFixedWidth(30)
@@ -364,6 +371,15 @@ class PostDropPanel(QFrame):
 
         outer.addWidget(button_bar)
 
+    def _setup_filter_completer(self, combo: QComboBox, placeholder: str):
+        """Attach a substring-matching completer to an editable QComboBox."""
+        completer = QCompleter(combo.model(), combo)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        combo.setCompleter(completer)
+        combo.lineEdit().setPlaceholderText(placeholder)
+
     def _add_separator(self):
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
@@ -437,9 +453,9 @@ class PostDropPanel(QFrame):
     def set_projects(self, projects: list[dict]):
         """Populate the project dropdown. Each item stores the project ID as user data."""
         self.project_combo.clear()
-        self.project_combo.addItem("(No project selected)", None)
         for p in projects:
             self.project_combo.addItem(p["name"], p["id"])
+        self.project_combo.setCurrentIndex(-1)
 
     def set_folders(self, folders: list[dict]):
         """Populate the folder dropdown with nested breadcrumb display.
@@ -447,10 +463,10 @@ class PostDropPanel(QFrame):
         Accepts either flat folders (with "name") or nested folders (with "display" and "depth").
         """
         self.folder_combo.clear()
-        self.folder_combo.addItem("(No folder selected)", None)
         for f in folders:
             display = f.get("display", f["name"])
             self.folder_combo.addItem(display, f["id"])
+        self.folder_combo.setCurrentIndex(-1)
 
 
 class FlowLayout(QVBoxLayout):
@@ -1683,12 +1699,21 @@ class MainWindow(QMainWindow):
 
     def _on_new_folder(self):
         """Prompt user for a new folder name. Creates as subfolder if a folder is selected."""
+        # Sync editable combo text to matching item
+        proj_idx = self.post_drop_panel.project_combo.findText(
+            self.post_drop_panel.project_combo.currentText())
+        if proj_idx >= 0:
+            self.post_drop_panel.project_combo.setCurrentIndex(proj_idx)
         project_id = self.post_drop_panel.project_combo.currentData()
         if project_id is None:
             QMessageBox.warning(self, "No Project", "Please select a project first.")
             return
 
         # If a folder is currently selected, create as subfolder
+        fold_idx = self.post_drop_panel.folder_combo.findText(
+            self.post_drop_panel.folder_combo.currentText())
+        if fold_idx >= 0:
+            self.post_drop_panel.folder_combo.setCurrentIndex(fold_idx)
         parent_folder_id = self.post_drop_panel.folder_combo.currentData()
         if parent_folder_id is not None:
             parent_display = self.post_drop_panel.folder_combo.currentText()
@@ -1776,7 +1801,14 @@ class MainWindow(QMainWindow):
         panel = self.post_drop_panel
 
         # Validate project and folder selection
+        # With editable combos, ensure typed text matches the selected item
+        project_idx = panel.project_combo.findText(panel.project_combo.currentText())
+        if project_idx >= 0:
+            panel.project_combo.setCurrentIndex(project_idx)
         project_id = panel.project_combo.currentData()
+        folder_idx = panel.folder_combo.findText(panel.folder_combo.currentText())
+        if folder_idx >= 0:
+            panel.folder_combo.setCurrentIndex(folder_idx)
         folder_id = panel.folder_combo.currentData()
         if project_id is None:
             QMessageBox.warning(self, "Missing Project", "Please select a project before approving.")
